@@ -1,5 +1,10 @@
 numpy>=2.0
+scipy>=1.10
+matplotlib>=3.7
+tqdm>=4.0
 stim>=1.14
 pymatching>=2.2
 ldpc>=2.0
+jupyter>=1.0
+ipykernel>=6.0
 relay_bp[stim] @ git+https://github.com/trmue/relay.git
