@@ -1,3 +1,25 @@
-# Python / environments
+# Virtual environment
+venv/
 .venv/
+env/
+
+# Claude Code
 .claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Benchmark output
+bench_results_*.json
+
+# Keys / secrets
+githubkey
+githubkey.pub
