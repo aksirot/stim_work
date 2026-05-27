@@ -243,6 +243,23 @@ def _gf2_rank(A: np.ndarray) -> int:
     return len(pivots)
 
 
+def _gf2_solve(A: np.ndarray, b: np.ndarray) -> Optional[np.ndarray]:
+    """Return x s.t. A @ x = b (mod 2), or None if no solution exists."""
+    m, n = A.shape
+    aug = np.hstack([A.copy() % 2, (b.copy() % 2).reshape(-1, 1)])
+    rref, pivots = _gf2_rref(aug)
+    for row_i in range(len(pivots)):
+        if pivots[row_i] == n:
+            return None
+    for row_i in range(len(pivots), m):
+        if rref[row_i, n]:
+            return None
+    x = np.zeros(n, dtype=np.uint8)
+    for row_i, col in enumerate(pivots):
+        x[col] = rref[row_i, n]
+    return x
+
+
 # ---------------------------------------------------------------------------
 # Parity check construction
 # ---------------------------------------------------------------------------

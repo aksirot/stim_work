@@ -38,8 +38,8 @@ from bb_code_sim import (
     _poly_matrix,
     _gf2_nullspace,
     _gf2_rref,
+    _gf2_solve,
 )
-from gross_lpu_analysis_bravyi import _gf2_solve
 
 
 # ---------------------------------------------------------------------------

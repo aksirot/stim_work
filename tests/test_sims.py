@@ -9,7 +9,6 @@ from bb_code_sim import (
     build_bb_circuit, BBCodeSimulator, BPOSDDecoder
 )
 import gross_code_lpu_tdg as tdg
-import gross_lpu_analysis_bravyi as bravyi
 
 
 # --- Surface code ---
@@ -125,20 +124,3 @@ def test_tdg_z1_circuit_zero_noise():
     assert int(obs.sum()) == 0
 
 
-# --- Gross code (Bravyi convention) ---
-
-def test_bravyi_parity_check_shape():
-    H_X, H_Z = bravyi.build_parity_checks()
-    assert H_X.shape == (72, 144)
-    assert H_Z.shape == (72, 144)
-
-
-def test_bravyi_css_orthogonality():
-    H_X, H_Z = bravyi.build_parity_checks()
-    assert np.all((H_X @ H_Z.T) % 2 == 0)
-
-
-def test_bravyi_logical_ops_count():
-    L_Z, L_X = bravyi.compute_logical_operators()
-    assert L_Z.shape[0] == 12
-    assert L_X.shape[0] == 12
