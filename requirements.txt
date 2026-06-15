@@ -7,4 +7,7 @@ pymatching>=2.2
 ldpc>=2.0
 jupyter>=1.0
 ipykernel>=6.0
-relay_bp[stim] @ git+https://github.com/trmue/relay.git
+pytest>=8.0
+# Pinned to the commit this repo was developed against (relay_bp has no PyPI release).
+# Requires a Rust toolchain to build — see CLAUDE.md setup.
+relay_bp[stim] @ git+https://github.com/trmue/relay.git@6cab93095187012138a35c656fec71c5aad38eae
