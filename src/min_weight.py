@@ -57,6 +57,52 @@ def _bposd(H: np.ndarray, priors, osd_order: int, max_iter: int) -> BpOsdDecoder
     )
 
 
+# ---------------------------------------------------------------------------
+# Optional process-parallel BP-OSD workers.
+#
+# ldpc's BpOsdDecoder is single-threaded per decode, but the distance decodes (one
+# per logical observable) and the L(D)-search trials are independent, so they
+# parallelise across processes. Workers build their own decoder from matrices shared
+# once via the pool initializer; only small results are returned. These must be
+# module-level (picklable) to work under the Windows 'spawn' start method.
+# ---------------------------------------------------------------------------
+_MW: Dict[str, object] = {}
+
+
+def _mw_init(H, A, priors, osd_order, max_iter) -> None:
+    _MW.update(H=H, A=A, priors=priors, osd_order=osd_order, max_iter=max_iter, M=H.shape[0])
+
+
+def _mw_forcing_correction(extra_row: np.ndarray) -> np.ndarray:
+    """OSD-W correction for H stacked with one forcing row whose check is fired."""
+    H = _MW["H"]; M = _MW["M"]
+    dec = _bposd(np.vstack([H, extra_row[None, :]]), _MW["priors"], _MW["osd_order"], _MW["max_iter"])
+    syndrome = np.zeros(M + 1, dtype=np.uint8)
+    syndrome[M] = 1
+    dec.decode(syndrome)
+    return np.asarray(dec.osdw_decoding, dtype=np.uint8)
+
+
+def _mw_distance_task(i: int) -> Tuple[int, np.ndarray]:
+    corr = _mw_forcing_correction(_MW["A"][i])
+    return int(corr.sum()), corr
+
+
+def _mw_logical_trial_task(args) -> Optional[Tuple[int, tuple]]:
+    trial, base_seed = args
+    A = _MW["A"]; K = A.shape[0]
+    rng = np.random.default_rng([base_seed, trial])     # deterministic per trial
+    coeffs = rng.integers(0, 2, size=K)
+    if not coeffs.any():
+        coeffs[rng.integers(K)] = 1
+    g = (coeffs @ A) % 2
+    corr = _mw_forcing_correction(g)
+    H = _MW["H"]
+    if (H @ corr % 2).any() or not (A @ corr % 2).any():
+        return None
+    return int(corr.sum()), tuple(int(x) for x in np.flatnonzero(corr))
+
+
 @dataclass
 class DistanceResult:
     distance: int
@@ -71,6 +117,8 @@ def compute_distance(
     osd_order: int = 10,
     max_iter: int = 200,
     priors=None,
+    progress: bool = False,
+    workers: int = 1,
 ) -> DistanceResult:
     """Circuit fault distance D and optimal onset ceil(D/2) (paper §4.1, BCG+24).
 
@@ -91,16 +139,35 @@ def compute_distance(
     syndrome[M] = 1
     weights: List[int] = []
     witnesses: List[np.ndarray] = []
-    for i in range(K):
-        Hi = np.vstack([H, A[i : i + 1, :]])
-        dec = _bposd(Hi, priors, osd_order, max_iter)
-        dec.decode(syndrome)
-        corr = np.asarray(dec.osdw_decoding, dtype=np.uint8)
-        # Sanity: a valid logical satisfies H·corr = 0 and is nontrivial on A.
-        if (H @ corr % 2).any() or not (A @ corr % 2).any():
-            raise RuntimeError(f"decoder returned a non-logical correction for observable {i}")
-        weights.append(int(corr.sum()))
-        witnesses.append(corr)
+
+    if workers and workers > 1 and K > 1:
+        import os
+        from multiprocessing import Pool
+        nproc = min(int(workers), K, os.cpu_count() or 1)
+        with Pool(nproc, initializer=_mw_init, initargs=(H, A, priors, osd_order, max_iter)) as pool:
+            results = pool.map(_mw_distance_task, range(K))
+        for i, (w, corr) in enumerate(results):
+            # Sanity: a valid logical satisfies H·corr = 0 and is nontrivial on A.
+            if (H @ corr % 2).any() or not (A @ corr % 2).any():
+                raise RuntimeError(f"decoder returned a non-logical correction for observable {i}")
+            weights.append(int(w))
+            witnesses.append(corr)
+        if progress:
+            print(f"      distance [parallel x{nproc}]: weights {weights}, min {min(weights)}", flush=True)
+    else:
+        for i in range(K):
+            Hi = np.vstack([H, A[i : i + 1, :]])
+            dec = _bposd(Hi, priors, osd_order, max_iter)
+            dec.decode(syndrome)
+            corr = np.asarray(dec.osdw_decoding, dtype=np.uint8)
+            # Sanity: a valid logical satisfies H·corr = 0 and is nontrivial on A.
+            if (H @ corr % 2).any() or not (A @ corr % 2).any():
+                raise RuntimeError(f"decoder returned a non-logical correction for observable {i}")
+            weights.append(int(corr.sum()))
+            witnesses.append(corr)
+            if progress:
+                print(f"      distance: logical {i+1}/{K} → weight {weights[-1]} "
+                      f"(running min {min(weights)})", flush=True)
 
     D = min(weights)
     onset = (D + 1) // 2
@@ -117,14 +184,24 @@ def find_min_weight_logicals(
     max_iter: int = 200,
     priors=None,
     seed: Optional[int] = None,
+    progress_every: int = 0,
+    workers: int = 1,
 ) -> Set[FrozenSet[int]]:
     """Search for L(D), the set of weight-D logical bitstrings (paper §4.2).
+
+    ``progress_every`` (>0) prints a status line every that-many trials: trials done,
+    distinct logicals found so far, and the current no-new-logical streak vs patience.
 
     Repeatedly appends a random nonzero combination of A's rows to H, decodes the
     forcing syndrome, and keeps weight-D logicals. Stops after ``patience``
     consecutive trials with no new logical, or ``max_trials`` total. Returns each
     logical as a frozenset of fault indices (its support). For larger codes this
     converges to a lower bound on |L(D)| (Fig. 6).
+
+    ``workers`` > 1 runs the (independent) trials across a process pool. The parallel
+    path uses per-trial deterministic seeding and runs the full ``max_trials`` —
+    ``patience`` early-stop does not apply (the trials are dispatched up front), so it
+    does more decodes but they are spread across cores; net wall-time is far lower.
     """
     H, A, _, probs = dem_check_action_matrices(circuit)
     M, N = H.shape
@@ -132,14 +209,34 @@ def find_min_weight_logicals(
     if priors is None:
         priors = probs
     if D is None:
-        D = compute_distance(circuit, osd_order=osd_order, max_iter=max_iter, priors=priors).distance
+        D = compute_distance(circuit, osd_order=osd_order, max_iter=max_iter,
+                             priors=priors, workers=workers).distance
+
+    if workers and workers > 1:
+        import os
+        from multiprocessing import Pool
+        nproc = min(int(workers), os.cpu_count() or 1)
+        base_seed = 0 if seed is None else int(seed)
+        tasks = [(t, base_seed) for t in range(max_trials)]
+        found_p: Set[FrozenSet[int]] = set()
+        with Pool(nproc, initializer=_mw_init, initargs=(H, A, priors, osd_order, max_iter)) as pool:
+            for n, res in enumerate(pool.imap_unordered(_mw_logical_trial_task, tasks, chunksize=4), 1):
+                if res is not None and res[0] == D:
+                    found_p.add(frozenset(res[1]))
+                if progress_every and n % progress_every == 0:
+                    print(f"      L(D) search [parallel x{nproc}]: {n}/{max_trials} trials, "
+                          f"|L(D)|={len(found_p)} found", flush=True)
+        return found_p
 
     rng = np.random.default_rng(seed)
     syndrome = np.zeros(M + 1, dtype=np.uint8)
     syndrome[M] = 1
     found: Set[FrozenSet[int]] = set()
     no_new = 0
-    for _ in range(max_trials):
+    for trial in range(max_trials):
+        if progress_every and trial > 0 and trial % progress_every == 0:
+            print(f"      L(D) search: trial {trial}/{max_trials}, "
+                  f"|L(D)|={len(found)} found, no-new streak {no_new}/{patience}", flush=True)
         coeffs = rng.integers(0, 2, size=K)
         if not coeffs.any():
             coeffs[rng.integers(K)] = 1
