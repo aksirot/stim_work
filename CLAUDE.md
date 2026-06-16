@@ -4,12 +4,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Setup
 
+`relay_bp` requires Rust to build. Install Rust first, then install all packages:
+
 ```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source $HOME/.cargo/env
 pip install -r requirements.txt
-pip install ldpc  # required for BB code BP-OSD decoder
 ```
 
-Key packages: `stim` (quantum circuit simulation), `pymatching` (MWPM decoder), `ldpc` (BP-OSD decoder for BB codes).
+Key packages: `stim` (quantum circuit simulation), `pymatching` (MWPM decoder), `ldpc` (BP-OSD decoder, fallback for BB codes), `relay_bp` (Rust-native relay-BP decoder, default for BB codes).
+
+## Agentic workflow rules
+
+These rules apply whenever Claude Code operates autonomously in this repo:
+
+- **Branch**: always work on a feature branch, never commit directly to `main`. If no branch is active, create one before making changes.
+- **Packages**: never install packages outside the `.venv` in the repo root. Always use `.venv/bin/pip install ...`. Never use `sudo pip`, `pip3`, or a system Python.
+- **Commits**: commit only the files relevant to the task. Do not stage `__pycache__/`, `.venv/`, or notebook output (already gitignored). Do not amend published commits.
+- **Notebooks**: do not execute notebook cells autonomously — edits to `.ipynb` files are source-only. Leave execution to the user.
+- **Simulations**: do not run long simulations (more than ~30s) without explicit user instruction. Use small shot counts (≤50) for quick sanity checks only.
+- **Scope**: do not modify `surface_code_sim.py` or `bb_code_sim.py` in ways that change existing public APIs without confirming with the user first.
 
 ## Running simulations
 
