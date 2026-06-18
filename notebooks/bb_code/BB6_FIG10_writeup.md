@@ -120,6 +120,21 @@ Multi-seeded Metropolis splitting estimates `LER(p)` at a ladder of physical err
 `burn_in=1000` per level. The splitting estimate is valid where chains mix; it can overshoot
 (`P > 1`) in the non-mixing regime. Use where it agrees with Technique I only.
 
+**Results (7-level ladder p=0.006..0.001):**
+
+| p | LER (splitting) | SE | Valid? |
+|---|---|---|---|
+| 6.00e-3 | 0.156 | 0.007 | ✓ (4% SE) |
+| 4.45e-3 | 2.648 | 1.247 | ✗ (P>1) |
+| 3.30e-3 | 10.574 | 7.209 | ✗ (P>1) |
+| 2.45e-3 | 10.224 | 8.476 | ✗ (P>1) |
+| 1.82e-3 | 3.514 | 3.381 | ✗ (P>1) |
+| 1.35e-3 | 0.657 | 0.708 | ✗ (SE > estimate) |
+| 1.00e-3 | 0.075 | 0.089 | ✗ (SE > estimate) |
+
+Only the top rung (p=0.006, near threshold) is valid. Chains do not mix below p≈0.003.
+Technique I (ansatz extrapolation) is the authoritative curve for the low-p tail.
+
 **Caveat:** At the low physical error rates of interest (`p ≈ 10⁻⁵`), Metropolis chains
 typically do not mix for `n_seeds=32` and `chain_steps=4000`. Technique I (ansatz extrapolation)
 is the authoritative curve for the low-`p` tail.
