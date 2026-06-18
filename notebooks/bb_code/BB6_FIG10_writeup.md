@@ -52,17 +52,30 @@ Reweighting gives `LER(p) ≈ Σ_w C(N, w) q^w (1-q)^(N-w) f_hat(w)`.
 
 **Ansatz fit:** The failure spectrum `f(w)` is modelled by the 3-parameter `f3` ansatz:
 ```
-f(w) = 0                      for w < w0
-f(w) = f0 * (1 - exp(-gamma*(w - w0)))^2   for w >= w0
+f(w) = 0                                            for w < w0
+f(w) = a * (1 - exp(-(f0/a) * (w/w0)^gamma))       for w >= w0
 ```
-(or the 5-parameter `f5` extension with a low-w crossover). The onset weight `w0` and
-onset fraction `f0` are pinned from Technique II. The shape parameter `gamma` is fit by
-least squares to the sampled `f_hat(w)` values.
+where `a = 1 − 2^{−K} ≈ 1` (K=12), so `f → a ≈ 1` at large w. The 5-parameter `f5`
+extension adds a crossover factor to the exponent. The onset weight `w0` and onset fraction
+`f0` are pinned from Technique II. The shape parameter `gamma` is fit by minimising weighted
+least squares on log f to the sampled `f_hat(w)` values.
 
 The fitted ansatz is then evaluated analytically at any `p` to extrapolate `LER(p)` far below
 the IS sampling range.
 
-**p-grid:** `p ∈ [1e-5, 1e-2]` (60 log-spaced points), built at `p_ref = 0.003`.
+**p-grid:** `p ∈ [1e-4, 1e-2]` (30 log-spaced points), built at `p_ref = 0.003`.
+
+**Fit results (full 65-weight IS sweep, 500 shots/weight, n_points=64, cost=65.9):**
+
+| Ansatz | w0 | f0 | γ | LER(p=1e-4) |
+|--------|----|----|---|------------|
+| f3 — our f0 (sweep) | 3 | 4.70e-7 | 5.59 | **8.7e-9** |
+| f3 — paper Table-2 pin | 3 | 7.01e-6 | 4.56 | 1.26e-7 |
+| f5 — paper Table-2 pin | 3 | 7.01e-6 | γ1=3.22, γ2=5.21, wc=6.6 | **1.14e-7** |
+
+The 15× gap between our f0 and the paper's propagates linearly to a 15× lower LER. The
+paper-pinned rows (f0 = 3.83×10⁸ / C(68940,3)) give the most direct comparison with
+Figure 10 of arXiv:2511.15177.
 
 ### Technique II — Min-weight onset (§4)
 
@@ -121,6 +134,7 @@ is the authoritative curve for the low-`p` tail.
 | `|L(D)|` | ≥ 1524 | 60 (random-only sweep); 85 (systematic+random, workers=8) |
 | `|F(D/2)|` | 3.83×10⁸ | 2.57×10⁷ (sweep, random-only); 3.08×10⁷ (systematic+random) |
 | `f0 = f*(D/2)` | 3.83e8 / C(68940, 3) | same (Table-2 pin) |
+| LER(p=1e-4) | ~1e-7 (Fig. 10) | 8.7e-9 (our f0); 1.14e-7 (paper-pinned f5); 1.26e-7 (paper-pinned f3) |
 
 **The main remaining gap** is in `|L(D)|`. BP-OSD at `osd_order=10` with random linear
 combinations finds only a subset of all weight-6 logical operators. The systematic enumeration
