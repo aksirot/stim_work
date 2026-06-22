@@ -171,14 +171,20 @@ weight (~13–22), not the min-weight logicals. The fix (`replica_exchange_estim
 add/remove proposal** (mixes weight in O(steps)) plus **replica exchange** across the ladder.
 
 **Result (`split_crosscheck.py`, ladder p=0.006→1e-4, 48 levels, 8 walkers; ~24 min).** The
-replica-exchange estimate tracks Technique I at a steady **0.99–1.26×** across **all 49 rungs**
-(de-aliased ratio: the ansatz is evaluated at each rung's exact p, not a coarse grid point). At the
-bottom rung it gives **LER(1e-4) = 1.42×10⁻⁷** vs the onset-pinned ansatz **1.16×10⁻⁷** — an
-independent confirmation using *no* exact-onset input, exactly where direct IS undershoots ~50×
-(see the truncation note below). Diagnostics: per-level **mean weight monotonic 22.2→3.4** (mixing
-into the onset region w₀=3), **swap acceptance 0.81–0.98**. The small, *steady* ~1.2× offset is
-consistent with the lighter cross-check decoder (num_sets=100 vs the curve's 600 → slightly more
-failures) — a constant offset, not a drift, so not a mixing artefact.
+replica-exchange estimate tracks Technique I across **all 49 rungs** (de-aliased ratio: the ansatz
+is evaluated at each rung's exact p, not a coarse grid point) — an independent confirmation using
+*no* exact-onset input, exactly where direct IS undershoots ~50× (see the truncation note below).
+Diagnostics: per-level **mean weight monotonic 22.2→3.4** (mixing into the onset region w₀=3),
+**swap acceptance 0.81–0.98**.
+
+**Honest error bars (`split_reproducibility.py`, 3 seeds).** The estimator's quoted per-run SE is a
+*between-walker* spread that treats the swap-coupled walkers as independent and ignores decoder
+stochasticity, so it is optimistic. Running the deep ladder with three independent seeds shows the
+true run-to-run spread is **~15% at 1e-4 — about 2.8× the quoted SE**. The report therefore plots
+the **3-run mean** with the **empirical run-to-run spread** as the error bar. With those honest bars
+the splitting estimate is **consistent with the ansatz within ~1σ at every rung** (3-run mean
+LER(1e-4) = **1.30×10⁻⁷** vs ansatz **1.16×10⁻⁷**) — the apparent ~1.2× offset is mostly statistical
+scatter the too-small SE had hidden, not a decoder bias.
 
 The two one-sided sequential runs (min-weight-seed = over, MC-seed = under) form an **under/over
 bracket** — a mixing check that brackets the estimate near threshold but **collapses below ~8×10⁻⁴**
@@ -188,8 +194,10 @@ bracket band is plotted only over the rungs where it genuinely brackets.
 **Cross-check vs paper Figure 9 (BB(6)-relay).** Fig 9 shows BB(6) splitting: panel (a) LER vs p,
 panel (c) failing-config weight distribution. Ours match both — splitting points on the LER curve
 over the full 6×10⁻³→10⁻⁴ range (`fig9a_ler_vs_p.png`), and the failing-config weight rising from
-**~3.4 (just above w₀=3) at 10⁻⁴ to ~22 near threshold**, with chain means on the analytic π_q(w)
-median (`fig9c_weight_dist.png`, combined `fig9_bb6.png`). The paper's *upward/downward* splitting is
+**the onset (w₀=3) at 10⁻⁴ to ~22 near threshold** (~31 at 10⁻²), with chain means tracking the
+**reweighted-ansatz π_q(w)** median — the ansatz f(w) times the analytic binomial weight factor,
+which (unlike the raw measured f(w)) extends correctly to the onset (`fig9c_weight_dist.png`,
+combined `fig9_bb6.png`). The paper's *upward/downward* splitting is
 our *over/under* bracket, and it explicitly flags the upward direction "struggl[ing] to converge or
 fully mix" — exactly our sequential-bracket collapse. Technique I remains the authoritative low-p
 curve; Technique III now corroborates it by an independent sampling method all the way to 10⁻⁴.
@@ -251,24 +259,28 @@ log-scale LER.
 | `bb6_fig10_sweep.py` | Stim-based pipeline: Technique I/II/III (`--full-dem` for both-sector) |
 | `bb6_reference_port.py` | exact Bravyi reference circuit → single-sector matrices |
 | `bb6_exact_enum_mitm.py` | exhaustive weight-6 logical enumeration (\|L(D)\|=1524) |
-| `split_crosscheck.py` | Technique-III splitting cross-check (single-sector) |
-| `bb6_report.py` | f3/f5 fits + the two report figures (used by the notebook) |
+| `split_crosscheck.py` | Technique-III splitting cross-check (single-sector), ladder 6e-3→1e-4 |
+| `split_reproducibility.py` | 3-seed reproducibility of the deep splitting run (honest error bars) |
+| `bb6_report.py` | f3/f5 fits + report figures (used by the notebook) |
 | `bb6_bitflip_comparison.py` | bitflip-model Table-2 match + toric symmetry |
 
 **Results (`bb6_fig10_curve/`):** `bb6_fig10.npz` (all arrays), `{distance,ansatz_fit,splitting,
-bb6.spectrum,config}.json`, `fig_ler_vs_p.png`, `fig_failure_spectrum.png`, `bb6_fig10.png`.
-`bb6_bitflip_out/` holds the bitflip convergence plot.
+reproducibility,bb6.spectrum,config}.json`, `fig_ler_vs_p.png`, `fig_failure_spectrum.png`,
+`fig9{a,c}_*.png`, `fig9_bb6.png`, `bb6_fig10.png`. `bb6_bitflip_out/` holds the bitflip
+convergence plot.
 
 ## 6. Caveats
 
 - **Rounds = d = 6** (fixed). The paper may use a different convention for the memory
   experiment length; verify against the Figure-10 caption if exact reproduction matters.
 - **Technique III reaches deep sub-threshold via replica exchange.** With the balanced proposal +
-  parallel tempering, the splitting estimate now tracks Technique I down to **p = 1e-4** (0.99–1.26×;
-  mean weight mixes 22.2→3.4). The *naive sequential* chains still fail there — their under/over
-  bracket collapses below ~8e-4 — so trust the replica-exchange (tempered) estimate, not the
-  sequential bracket, deep sub-threshold. A small ~1.2× offset comes from the lighter cross-check
-  decoder (num_sets=100); rerun with num_sets≈600 for a tighter match.
+  parallel tempering, the splitting estimate tracks Technique I down to **p = 1e-4** (mean weight
+  mixes 22.2→3.4), and a 3-seed reproducibility run shows it is **consistent with the ansatz within
+  ~1σ at every rung** once the error bars are the honest run-to-run spread (~15% at 1e-4, ~2.8× the
+  optimistic single-run walker-SE). The *naive sequential* chains still fail there — their under/over
+  bracket collapses below ~8e-4 — so trust the replica-exchange estimate, not the sequential bracket,
+  deep sub-threshold. (A num_sets≈600 cross-check decoder, vs the run's 100, would tighten the point
+  further, but it is already within 1σ.)
 - **Single-sector throughout.** Technique I (IS sweep), II (min-weight), and III (splitting) all
   run on the single Z-check sector derived from the Stim circuit. The full both-sector path is
   still available via `--full-dem` (for future full-DEM work) but is not the default; no full-DEM

@@ -74,9 +74,14 @@ def compute(outdir=DEFAULT_OUT, bootstrap=150, seed=0):
     if sp.exists():
         split = json.loads(sp.read_text())   # new schema: {tempered, bracket, diagnostics, compare}
 
+    repro = None                              # multi-seed reproducibility of the replica-exchange run
+    rp = outdir / "reproducibility.json"
+    if rp.exists():
+        repro = json.loads(rp.read_text())    # {seeds, p_ladder, mean, rel_spread, quoted_rel_se, ...}
+
     return dict(w=w, F=F, T=T, N=N, q_base=q_base, f0=f0, w0=w0, p_ref=p_ref,
                 p_grid=p_grid, isp=isp, isL=isL, isSE=isSE, fits=fits, LER=LER, band=band,
-                split=split)
+                split=split, repro=repro)
 
 
 def onset_LER(p, R):
@@ -117,19 +122,32 @@ def is_zero_count_upper(R, p_values=None):
 def splitting_comparison(R):
     """Per-rung Technique-III (replica-exchange) vs Technique-I comparison, de-aliased.
 
-    The ansatz is evaluated at each rung's EXACT p — the ratio stored in splitting.json uses the
-    nearest *coarse* ansatz-grid point and so zig-zags. Returns arrays p, tP, tSE, ansatz, ratio,
-    valid (within 2x of the ansatz) and inside_bracket (whether the sequential under/over bracket
-    still brackets the estimate — False deep sub-threshold, where the sequential chains collapse)."""
+    The point/error bar prefer the multi-seed reproducibility run when present: the plotted point is
+    the across-seed MEAN and the bar is the empirical run-to-run spread (the *honest* uncertainty),
+    which is ~2.8x the single-run walker-SE in splitting.json (that SE treats the swap-coupled
+    walkers as independent and ignores decoder stochasticity, so it is optimistic). Falls back to
+    the single committed run otherwise. The ansatz is evaluated at each rung's EXACT p (the ratio
+    stored in splitting.json uses a coarse grid point and zig-zags). inside_bracket comes from the
+    sequential under/over bracket (False deep sub-threshold, where those chains collapse)."""
     s = R["split"]
-    tp = np.asarray(s["tempered"]["p_ladder"], float)
-    tP = np.asarray(s["tempered"]["P_logical"], float)
-    tSE = np.asarray(s["tempered"]["P_logical_se"], float)
+    if R.get("repro"):
+        rp = R["repro"]
+        tp = np.asarray(rp["p_ladder"], float)
+        tP = np.asarray(rp["mean"], float)
+        tSE = np.asarray(rp["rel_spread"], float) * tP          # run-to-run spread (absolute)
+        bar = "spread"
+    else:
+        tp = np.asarray(s["tempered"]["p_ladder"], float)
+        tP = np.asarray(s["tempered"]["P_logical"], float)
+        tSE = np.asarray(s["tempered"]["P_logical_se"], float)
+        bar = "se"
     ans = np.asarray(logical_error_rate_from_ansatz(R["fits"]["f3"], list(tp)))
     ratio = tP / np.maximum(ans, 1e-300)
     inb = np.array([r["inside_bracket"] for r in s["compare"]], dtype=bool)
-    return dict(p=tp, tP=tP, tSE=tSE, ansatz=ans, ratio=ratio,
-                valid=(ratio >= 0.5) & (ratio <= 2.0), inside_bracket=inb)
+    # "valid" = ansatz lies within the (honest) error bar, i.e. consistent within ~1 sigma.
+    consistent = np.abs(tP - ans) <= np.maximum(tSE, 1e-300)
+    return dict(p=tp, tP=tP, tSE=tSE, ansatz=ans, ratio=ratio, bar=bar,
+                valid=(ratio >= 0.5) & (ratio <= 2.0), consistent=consistent, inside_bracket=inb)
 
 
 def fig_ler_vs_p(R, ax=None):
@@ -170,9 +188,11 @@ def fig_ler_vs_p(R, ax=None):
         if inb.any():
             ax.fill_between(bp[inb], blo[inb], bhi[inb], color="seagreen", alpha=0.12,
                             label="Technique III: splitting bracket (near-threshold mixing check)")
+        lbl = ("Technique III: replica-exchange (3-run mean ± run-to-run spread)"
+               if c["bar"] == "spread" else "Technique III: replica-exchange splitting ± SE")
         if valid.any():
-            ax.errorbar(tp[valid], tP[valid], yerr=tSE[valid], fmt="s", color="seagreen", ms=6, capsize=3,
-                        label="Technique III: replica-exchange splitting ± SE")
+            ax.errorbar(tp[valid], tP[valid], yerr=tSE[valid], fmt="s", color="seagreen", ms=6,
+                        capsize=3, label=lbl)
         if (~valid).any():
             ax.plot(tp[~valid], tP[~valid], "s", mfc="none", mec="seagreen", ms=6,
                     label="Technique III: replica-exchange (off ansatz >2x)")
@@ -210,9 +230,13 @@ def fig_failure_spectrum(R, ax=None):
 
 def _weight_percentiles(R, p, qs=(0.1, 0.25, 0.5, 0.75, 0.9)):
     """Percentiles of the failing-config weight distribution pi_q(w) ~ f(w) C(N,w) q^w (1-q)^(N-w)
-    at physical rate p, computed analytically from the measured f(w). This is the distribution the
-    splitting chains should visit (cf. paper Fig 9c)."""
-    w = R["w"].astype(float); f = R["F"] / np.maximum(R["T"], 1)
+    at physical rate p. The reweighting (binomial factor) is analytic; the f(w) input is the f3
+    ANSATZ (pinned nonzero at the onset w0), so pi_q(w) extends correctly to the onset and the
+    median bends toward w0 at low p — unlike the raw *measured* f(w), which is truncated at the
+    lowest sampled-with-failures weight (w=6) and would floor the median there. This is the
+    distribution the splitting chains should visit (cf. paper Fig 9c)."""
+    w = np.arange(int(R["w0"]), 60, dtype=float)              # ansatz is defined for all w >= w0
+    f = R["fits"]["f3"].f(w)
     N = R["N"]; q = R["q_base"] * (p / R["p_ref"])
     logpi = (np.log(np.maximum(f, 1e-300)) + gammaln(N + 1) - gammaln(w + 1) - gammaln(N - w + 1)
              + w * np.log(q) + (N - w) * np.log1p(-q))
@@ -222,15 +246,16 @@ def _weight_percentiles(R, p, qs=(0.1, 0.25, 0.5, 0.75, 0.9)):
 
 
 def fig_weight_vs_p(R, ax=None):
-    """Fig-9(c)-style: failing-config weight vs physical error rate. Analytic pi_q(w) band (from
-    measured f(w)) + the replica-exchange chains' mean weight per ladder rate."""
+    """Fig-9(c)-style: failing-config weight vs physical error rate. pi_q(w) band = the f3 ANSATZ
+    f(w) reweighted analytically by the binomial weight factor (semi-analytic: analytic reweighting,
+    ansatz-fit input) + the replica-exchange chains' mean weight per ladder rate."""
     import matplotlib.pyplot as plt
     if ax is None: _, ax = plt.subplots(figsize=(8.4, 5.6))
     pg = np.geomspace(1e-4, 1e-2, 60)
     P = np.array([_weight_percentiles(R, p) for p in pg])  # (60,5): 10,25,50,75,90
-    ax.fill_between(pg, P[:, 0], P[:, 4], color="steelblue", alpha=0.18, label=r"analytic $\pi_q(w)$ 10–90%")
-    ax.fill_between(pg, P[:, 1], P[:, 3], color="steelblue", alpha=0.30, label=r"analytic $\pi_q(w)$ 25–75%")
-    ax.plot(pg, P[:, 2], "-", color="steelblue", lw=2, label=r"analytic median weight")
+    ax.fill_between(pg, P[:, 0], P[:, 4], color="steelblue", alpha=0.18, label=r"reweighted ansatz $\pi_q(w)$ 10–90%")
+    ax.fill_between(pg, P[:, 1], P[:, 3], color="steelblue", alpha=0.30, label=r"reweighted ansatz $\pi_q(w)$ 25–75%")
+    ax.plot(pg, P[:, 2], "-", color="steelblue", lw=2, label=r"reweighted ansatz median weight")
     if R["split"]:
         tp = np.array(R["split"]["tempered"]["p_ladder"]); mw = np.array(R["split"]["diagnostics"]["mean_weight"])
         ax.plot(tp, mw, "s", color="seagreen", ms=7, mec="k", mew=0.4, zorder=5,

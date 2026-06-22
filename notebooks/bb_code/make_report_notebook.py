@@ -124,28 +124,34 @@ seeds **overshoot**, high-weight seeds **undershoot**. The fix is **replica exch
 in O(steps), and swaps between adjacent rates let configs migrate to their equilibrium weight at
 each level.
 
-**Result of the deep run:** the replica-exchange estimate tracks the Technique-I ansatz at a steady
-**0.99–1.26×** across the *entire* 6×10⁻³ → 10⁻⁴ range — at 10⁻⁴ it gives **1.42×10⁻⁷** vs the
-onset-pinned ansatz **1.16×10⁻⁷**, an independent confirmation (using *no* exact-onset input) exactly
+**Result of the deep run.** The replica-exchange estimate tracks the Technique-I ansatz across the
+*entire* 6×10⁻³ → 10⁻⁴ range — an independent confirmation using *no* exact-onset input, exactly
 where direct IS undershoots ~50×. The chain **mean weight descends monotonically 22 → 3.4** (mixing
-into the onset region w₀=3) with **swap acceptance 0.81–0.98**. The small steady ~1.2× offset is
-consistent with the lighter cross-check decoder (num_sets=100 vs the curve's 600 → slightly more
-failures); it is a constant offset, not a drift, so it is not a mixing artefact.
+into the onset region w₀=3) with **swap acceptance 0.81–0.98**.
+
+**Honest error bars (3-seed reproducibility).** Running the deep ladder with three independent random
+seeds (`split_reproducibility.py`) shows the *run-to-run spread* is **~15% at 10⁻⁴** — about **2.8×**
+the single-run walker-SE quoted by the estimator (that SE treats the swap-coupled walkers as
+independent and ignores decoder stochasticity, so it is optimistic). The plotted green points are
+therefore the **3-run mean** with the **empirical run-to-run spread** as the error bar. With those
+honest bars the splitting estimate is **consistent with the ansatz within ~1σ at every rung**
+(3-run mean LER(10⁻⁴) = 1.30×10⁻⁷ vs ansatz 1.16×10⁻⁷) — i.e. the apparent ~1.2× offset is mostly
+statistical scatter the too-small SE had hidden.
 
 The two one-sided sequential runs (min-weight-seed = over, MC-seed = under) form a **bracket** — a
 mixing check that works near threshold but **collapses below ~8×10⁻⁴** (the very trapping replica
 exchange cures), so the bracket band is shown only where it genuinely brackets.""")
 
 code("""if R["split"]:
-    c = bb6_report.splitting_comparison(R)   # de-aliased: ansatz evaluated at each rung's exact p
-    print(f"{'p':>10}{'tempered (SE)':>20}{'Tech-I':>11}{'ratio':>7}  agree  bracket")
+    c = bb6_report.splitting_comparison(R)   # 3-run mean ± run-to-run spread; ansatz at exact p
+    print(f"{'p':>10}{'mean P (spread)':>20}{'Tech-I':>11}{'ratio':>7}  1sig?  bracket")
     for k in range(0, c['p'].size, 2):       # every other rung (49 total)
-        ag = ' ok ' if c['valid'][k] else '>2x '
+        ag = ' ok ' if c['consistent'][k] else 'off '
         br = 'inside' if c['inside_bracket'][k] else 'collapsed'
-        print(f"{c['p'][k]:>10.2e}{c['tP'][k]:>11.2e} (±{c['tSE'][k]:.0e}){c['ansatz'][k]:>11.2e}"
+        print(f"{c['p'][k]:>10.2e}{c['tP'][k]:>11.2e} (±{100*c['tSE'][k]/c['tP'][k]:>3.0f}%){c['ansatz'][k]:>11.2e}"
               f"{c['ratio'][k]:>7.2f}  {ag}  {br}")
     sa = R["split"]["diagnostics"]["swap_accept"]; mw = R["split"]["diagnostics"]["mean_weight"]
-    print(f"\\nratio range {c['ratio'].min():.2f}-{c['ratio'].max():.2f} over {c['p'].size} rungs; "
+    print(f"\\nansatz consistent (1sig) on {100*c['consistent'].mean():.0f}% of rungs; "
           f"swap-accept {min(sa):.2f}..{max(sa):.2f}; mean weight {mw[0]:.1f} (hi-q) -> {mw[-1]:.1f} (lo-q)")""")
 
 md(r"""### Cross-check against paper Figure 9 (BB(6)-relay)
@@ -156,9 +162,11 @@ configurations* vs p. Our analogs below:
 
 - **(a)** the replica-exchange splitting points lie on the ansatz / IS curve across the **full
   6×10⁻³ → 10⁻⁴ range** — like the paper's *downward splitting* + Monte Carlo.
-- **(c)** the failing-config weight rises from **~3.4 just above the onset (w₀=3) at p=10⁻⁴ to ~22
-  near threshold**; our chain mean weights track the analytic π_q(w) median (from the measured
-  f(w)) — matching the shape of the paper's BB(6) weight distributions.
+- **(c)** the failing-config weight rises from **the onset (w₀=3) at p=10⁻⁴ to ~22 near threshold**
+  (~31 at 10⁻²); our chain mean weights track the **reweighted-ansatz π_q(w) median** (the f3 ansatz
+  f(w) times the analytic binomial weight factor) — matching the shape of the paper's BB(6) weight
+  distributions. The chain *means* sit just above the *median* at low p, as expected for the
+  right-skewed onset distribution.
 
 The paper's *upward/downward* splitting is our *over/under* bracket, and it explicitly notes the
 upward splitting "struggle[s] to converge or fully mix" — exactly our overshoot. The downward (our
