@@ -79,9 +79,32 @@ def compute(outdir=DEFAULT_OUT, bootstrap=150, seed=0):
     if rp.exists():
         repro = json.loads(rp.read_text())    # {seeds, p_ladder, mean, rel_spread, quoted_rel_se, ...}
 
+    # Representation/Table-2 metadata: distance.json carries the full Table-2 quantities for the
+    # full-DEM (search) path; the single-sector path is the exact-MITM-pinned EXACT constants. `meta`
+    # lets the report show either without single-sector-specific assumptions baked into the figures.
+    dist = json.loads((outdir / "distance.json").read_text()) if (outdir / "distance.json").exists() else {}
+    single_sector = bool(dist.get("single_sector", cfg.get("mw_single_sector", True)))
+    meta = dict(single_sector=single_sector,
+                code_label=cfg.get("code_label", "BB(6)=[[72,12,6]]"),
+                method=dist.get("method", "mitm_exact" if dist.get("exact_pin") else "search"),
+                D=int(dist.get("distance", 2 * w0)), w0=w0, N=N, f0=f0,
+                n_compressed=dist.get("n_compressed"), n_expanded=dist.get("n_expanded", N),
+                n_min_logicals=dist.get("n_min_logicals"),
+                n_min_logicals_expanded=dist.get("n_min_logicals_expanded"),
+                fail_count=dist.get("fail_count"))
+    if single_sector and meta["n_compressed"] is None:   # exact-MITM-pinned single sector: use EXACT
+        meta.update(method="mitm_exact", n_compressed=EXACT["n_compressed"],
+                    n_expanded=EXACT["n_expanded"], n_min_logicals=EXACT["L_compressed"],
+                    n_min_logicals_expanded=EXACT["L_expanded"], fail_count=EXACT["F"])
+
+    search_conv = json.loads((outdir / "search_convergence.json").read_text()) \
+        if (outdir / "search_convergence.json").exists() else None
+    dconv = json.loads((outdir / "decoder_convergence.json").read_text()) \
+        if (outdir / "decoder_convergence.json").exists() else None
+
     return dict(w=w, F=F, T=T, N=N, q_base=q_base, f0=f0, w0=w0, p_ref=p_ref,
                 p_grid=p_grid, isp=isp, isL=isL, isSE=isSE, fits=fits, LER=LER, band=band,
-                split=split, repro=repro)
+                split=split, repro=repro, meta=meta, search_conv=search_conv, dconv=dconv)
 
 
 def onset_LER(p, R):
@@ -268,6 +291,99 @@ def fig_weight_vs_p(R, ax=None):
     ax.set_title("BB(6) — weight distribution of failing configs (cf. paper Fig. 9c)")
     ax.legend(fontsize=8, loc="upper left"); ax.grid(True, which="both", alpha=0.3)
     return ax
+
+
+def fig_search_convergence(R, ax=None):
+    """Search saturation: |L(D)| found vs cumulative BP-OSD search trials. The plateau means the
+    search found every minimum-weight logical — the completeness check for the search-derived
+    full-DEM Table 2 (no exact MITM there). Validated where an exact MITM count is available."""
+    import matplotlib.pyplot as plt
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.4, 5.2))
+    sc = R.get("search_conv")
+    if not sc or not sc.get("trace"):
+        ax.text(0.5, 0.5, "no search_convergence.json\n(Table 2 was exact-MITM pinned)",
+                ha="center", va="center", transform=ax.transAxes)
+        return ax
+    tr = np.asarray(sc["trace"], dtype=float)
+    x, y = tr[:, 0], tr[:, 1]
+    total = sc.get("n_systematic", 0) + sc.get("max_trials", 0)
+    if total > x[-1]:                                   # extend to the full budget so the plateau shows
+        x = np.append(x, total); y = np.append(y, y[-1])
+    ax.step(x, y, where="post", color="teal", lw=2, label="|L(D)| found")
+    nsys = sc.get("n_systematic", 0)
+    if nsys:
+        ax.axvline(nsys, color="gray", ls=":", lw=1, label=f"systematic→random ({nsys})")
+    ax.axhline(y[-1], color="crimson", ls="--", lw=1, label=f"saturated |L(D)| = {int(sc['final'])}")
+    rep = "single-sector" if sc.get("single_sector") else "full DEM"
+    ax.set_xlabel("cumulative search trials"); ax.set_ylabel("|L(D)| found")
+    ax.set_title(f"Min-weight search saturation ({rep})")
+    ax.legend(fontsize=8, loc="lower right"); ax.grid(True, alpha=0.3)
+    return ax
+
+
+def fig_decoder_convergence(R, ax=None):
+    """Relay-BP convergence on the full DEM: logical error rate (left) and disagreement with the
+    most-legs decoder (right) vs the number of relay legs (num_sets). LER plateaus and the
+    disagreement → 0 as legs grow, showing the decoder has enough legs to be reliable."""
+    import matplotlib.pyplot as plt
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.4, 5.2))
+    dc = R.get("dconv")
+    if not dc or not dc.get("rows"):
+        ax.text(0.5, 0.5, "no decoder_convergence.json", ha="center", va="center",
+                transform=ax.transAxes)
+        return ax
+    rows = dc["rows"]
+    ns = np.array([r["num_sets"] for r in rows], float)
+    ler = np.array([r["ler"] for r in rows], float)
+    se = np.array([r.get("ler_se", 0.0) for r in rows], float)
+    ax.errorbar(ns, ler, yerr=se, fmt="o-", color="darkviolet", capsize=3, label="logical error rate")
+    ax.set_xscale("log"); ax.set_xlabel("Relay-BP legs (num_sets)"); ax.set_ylabel("logical error rate")
+    ax.set_title(f"Relay-BP decoder convergence (full DEM, p={dc.get('p')})")
+    ax2 = ax.twinx()
+    dis = np.array([r.get("disagree_with_best", np.nan) for r in rows], float)
+    ax2.plot(ns, dis, "s--", color="darkorange", ms=4, alpha=0.8, label="disagreement vs most-legs")
+    ax2.set_ylabel("fraction disagreeing with best", color="darkorange")
+    ax2.tick_params(axis="y", labelcolor="darkorange")
+    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, fontsize=8, loc="upper right"); ax.grid(True, which="both", alpha=0.3)
+    return ax
+
+
+def fig_compare_ler(R_single, R_full, ax=None):
+    """Overlay the LER(p) curves (f3 ansatz + IS points) for the single-sector and full-DEM runs."""
+    import matplotlib.pyplot as plt
+    if ax is None:
+        _, ax = plt.subplots(figsize=(8.6, 5.6))
+    for R, col, tag in ((R_single, "crimson", "single-sector (Z)"), (R_full, "navy", "full DEM")):
+        ax.plot(R["p_grid"], R["LER"]["f3"], "-", color=col, lw=2,
+                label=f"{R['meta']['code_label']} · {tag} (f3)")
+        ax.plot(R["isp"], R["isL"], "o", color=col, ms=3, alpha=0.45)
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_xlabel(r"Physical error rate $p$"); ax.set_ylabel("Logical error rate")
+    ax.set_title("LER(p): single-sector vs full DEM")
+    ax.legend(fontsize=8, loc="lower right"); ax.grid(True, which="both", alpha=0.3)
+    return ax
+
+
+def table2_compare(R_single, R_full):
+    """Markdown side-by-side of the Table-2 min-weight quantities (single-sector vs full DEM)."""
+    def g(m, k):
+        v = m.get(k)
+        return "—" if v is None else (f"{v:.4g}" if isinstance(v, (int, float)) else str(v))
+    ms, mf = R_single["meta"], R_full["meta"]
+    rows = [("method", ms["method"], mf["method"]),
+            ("distance D", g(ms, "D"), g(mf, "D")),
+            ("onset w0", g(ms, "w0"), g(mf, "w0")),
+            ("n_compressed", g(ms, "n_compressed"), g(mf, "n_compressed")),
+            ("n_expanded", g(ms, "n_expanded"), g(mf, "n_expanded")),
+            ("|L(D)| comp", g(ms, "n_min_logicals"), g(mf, "n_min_logicals")),
+            ("|L(D)| exp", g(ms, "n_min_logicals_expanded"), g(mf, "n_min_logicals_expanded")),
+            ("|F(D/2)|", g(ms, "fail_count"), g(mf, "fail_count")),
+            ("f0", g(ms, "f0"), g(mf, "f0"))]
+    head = f"| quantity | {ms['code_label']} single-sector | {mf['code_label']} full DEM |"
+    return "\n".join([head, "|---|---|---|"] + [f"| {a} | {b} | {c} |" for a, b, c in rows])
 
 
 def main():

@@ -50,7 +50,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -78,7 +78,11 @@ REPO_ROOT = _add_src_to_path()
 
 from scipy.special import gammaln  # noqa: E402
 
-from bb_code_sim import BBCodeSimulator, BB_72_12_6, RelayBPDecoder  # noqa: E402
+from bb_code_sim import (BBCodeSimulator, BBCodeParams, BB_72_12_6, BB_144_12_12,  # noqa: E402
+                         RelayBPDecoder)
+
+# Code registry for the --code seam (default BB(6); others are future bicycle codes).
+CODES = {"bb72": (BB_72_12_6, "BB(6)=[[72,12,6]]"), "bb144": (BB_144_12_12, "BB(12)=[[144,12,12]]")}
 from surface_code_sim import ErrorModel  # noqa: E402
 from importance_sampling import (  # noqa: E402
     FailureSpectrum,
@@ -99,9 +103,14 @@ from importance_sampling import (  # noqa: E402
 class Config:
     label: str
 
+    # code (the --code seam; default BB(6)). build_circuit + the toric symmetry read this, so
+    # other bivariate-bicycle codes are a one-line change (set code= and rounds=code.distance).
+    code: BBCodeParams = field(default_factory=lambda: BB_72_12_6)
+    code_label: str = "BB(6)=[[72,12,6]]"
+
     # circuit / noise
     p_ref: float = 0.003                 # circuit is built at this physical error rate
-    rounds: int = BB_72_12_6.distance    # syndrome rounds (= d = 6 for the memory experiment)
+    rounds: int = BB_72_12_6.distance    # syndrome rounds (= d for the memory experiment)
 
     # Relay-BP decoder settings (paper §2.4 for BB(6): γ0=0.125, leg1=80 it,
     # legs=60 it up to 600 legs, γ~Unif[-0.24,0.66], S=6).
@@ -144,6 +153,11 @@ class Config:
     # directly instead of re-running the multi-minute BP-OSD search (which plateaus ~0.5% low).
     mw_f0_override: Optional[float] = 2.3239e-5
     mw_w0_override: Optional[int] = 3
+
+    # Decoder-convergence diagnostic (--decoder-conv): Relay-BP LER vs # legs on the full DEM.
+    dconv_p: float = 0.005               # near-threshold rate with plenty of failures
+    dconv_shots: int = 2000
+    dconv_num_sets: Tuple[int, ...] = (1, 2, 5, 10, 30, 100, 300, 600)
 
     # Technique III — splitting cross-check
     split_p_high: float = 0.006
@@ -194,6 +208,7 @@ class Config:
             split_chain_steps=30, split_burn_in=10, split_anchor_shots=80,
             split_min_weight_max_trials=20,
             onset_shots=40,
+            dconv_shots=40, dconv_num_sets=(1, 5, 20),
         )
 
 
@@ -210,9 +225,9 @@ def make_decoder(cfg: Config) -> RelayBPDecoder:
 
 
 def build_circuit(cfg: Config):
-    """The BB(6) = [[72,12,6]] memory circuit at p_ref with cfg.rounds syndrome rounds."""
+    """The cfg.code (default BB(6)=[[72,12,6]]) memory circuit at p_ref with cfg.rounds rounds."""
     em = ErrorModel.symmetric(cfg.p_ref)
-    return BBCodeSimulator(BB_72_12_6).build_circuit(em, rounds=cfg.rounds)
+    return BBCodeSimulator(cfg.code).build_circuit(em, rounds=cfg.rounds)
 
 
 # ================================ checkpoint I/O ==================================
@@ -431,7 +446,8 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
     if cfg.mw_use_symmetry:
         print(f"  [II.2] building Z_6×Z_6 toric translation permutations ...", flush=True)
         try:
-            sym_perms = build_circuit_translation_perms(circuit, H, det_coords=det_coords, verbose=True)
+            sym_perms = build_circuit_translation_perms(circuit, H, l=cfg.code.l, m=cfg.code.m,
+                                                        det_coords=det_coords, verbose=True)
             print(f"  [II.2] {len(sym_perms)} toric perms ready "
                   f"(each logical found → up to {len(sym_perms)} for free)", flush=True)
         except (KeyError, ValueError) as exc:
@@ -441,13 +457,23 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
 
     print(f"  [II.2] L(D) search: {n_sys} systematic + up to {cfg.mw_max_trials} random trials ...",
           flush=True)
-    logicals = find_min_weight_logicals(
+    logicals, search_trace = find_min_weight_logicals(
         circuit, D, max_trials=cfg.mw_max_trials, osd_order=cfg.mw_osd_order,
         max_iter=cfg.mw_max_iter, priors=priors, seed=cfg.seed,
         progress_every=max(max(n_sys, cfg.mw_max_trials) // 40, 1), workers=cfg.mw_workers,
         systematic=cfg.mw_systematic, symmetry_perms=sym_perms, sector=sector,
+        return_trace=True,
     )
     ld_comp = len(logicals)
+    # Search-saturation trace: |L(D)| found vs cumulative trials. The plateau establishes the
+    # search found all min-weight logicals — the completeness check for the search-derived
+    # full-DEM Table 2 (no exact MITM enumeration there). Validated against the exact MITM count
+    # where available (single-sector).
+    _atomic_write_json(outdir / "search_convergence.json", {
+        "trace": [[int(t), int(c)] for (t, c) in search_trace],
+        "n_systematic": int(n_sys), "max_trials": int(cfg.mw_max_trials),
+        "single_sector": bool(cfg.mw_single_sector), "distance": int(D), "final": int(ld_comp),
+    })
     ld_exp = expanded_logical_count(logicals, mult)
     print(f"  [II.2] |L(D)| compressed={ld_comp}, expanded={ld_exp:.4g} "
           f"(paper {PAPER_LD_EXP:.3g})   ({time.perf_counter() - t1:.0f}s)", flush=True)
@@ -462,6 +488,7 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
         "rounds": cfg.rounds,
         "single_sector": bool(cfg.mw_single_sector),
         "sector_type": int(cfg.mw_sector_type) if cfg.mw_single_sector else None,
+        "method": "search",                          # BP-OSD search (exact MITM only for pinned single-sector)
         "distance": int(D),
         "onset": int(half),                          # w0 = D/2
         "n_compressed": int(n_comp),                 # Ñ  (paper 2233)
@@ -665,9 +692,46 @@ def make_plot(cfg: Config, is_result: ImportanceSamplingResult, tech1: dict,
     print(f"  wrote {outdir/'bb6_fig10.png'}")
 
 
+def run_decoder_convergence(cfg: Config, outdir: pathlib.Path, *, p: Optional[float] = None,
+                            shots: Optional[int] = None, num_sets_grid=None, seed: int = 0) -> dict:
+    """Relay-BP decoder convergence on the FULL DEM: logical error rate (and disagreement with the
+    most-legs decoder) vs the number of relay legs (num_sets), at a fixed near-threshold p. As
+    num_sets grows the LER plateaus and the disagreement -> 0, showing the decoder has enough legs
+    to be reliable. Writes decoder_convergence.json. Defaults from cfg.dconv_* (smoke overrides)."""
+    p = float(p if p is not None else cfg.dconv_p)
+    shots = int(shots if shots is not None else cfg.dconv_shots)
+    num_sets_grid = tuple(num_sets_grid if num_sets_grid is not None else cfg.dconv_num_sets)
+    circuit = BBCodeSimulator(cfg.code).build_circuit(ErrorModel.symmetric(p), rounds=cfg.rounds)
+    det, obs = circuit.compile_detector_sampler(seed=seed).sample(shots, separate_observables=True)
+    print(f"\nDecoder convergence (full DEM): p={p:.3g}, {shots} shots, "
+          f"num_sets grid {list(num_sets_grid)} ...", flush=True)
+    preds_by_ns, rows = {}, []
+    for ns in num_sets_grid:
+        dec = RelayBPDecoder(gamma0=cfg.relay_gamma0, pre_iter=cfg.relay_pre_iter, num_sets=int(ns),
+                             set_max_iter=cfg.relay_set_max_iter,
+                             gamma_dist_interval=(cfg.relay_gamma_lo, cfg.relay_gamma_hi),
+                             stop_nconv=cfg.relay_stop_nconv)
+        dec.setup(circuit)                                  # full both-sector DEM
+        t0 = time.perf_counter()
+        preds = np.asarray(dec.decode_batch(det))
+        ler = float(np.any(preds != obs, axis=1).mean())
+        preds_by_ns[int(ns)] = preds
+        rows.append({"num_sets": int(ns), "ler": ler,
+                     "ler_se": float(np.sqrt(max(ler * (1 - ler), 1e-12) / shots))})
+        print(f"  num_sets={ns:>4}: LER={ler:.3e}  ({time.perf_counter() - t0:.0f}s)", flush=True)
+    best = preds_by_ns[int(num_sets_grid[-1])]              # most-legs decoder = reference
+    for r in rows:
+        r["disagree_with_best"] = float(np.any(preds_by_ns[r["num_sets"]] != best, axis=1).mean())
+    out = {"p": p, "shots": int(shots), "rounds": cfg.rounds, "code": cfg.code_label,
+           "single_sector": False, "rows": rows}
+    _atomic_write_json(outdir / "decoder_convergence.json", out)
+    print(f"wrote {outdir / 'decoder_convergence.json'}", flush=True)
+    return out
+
+
 # ================================== driver =======================================
 def run_all(cfg: Config, outdir: pathlib.Path, *, do_onset: bool = False,
-            do_split: bool = True, do_plot: bool = False) -> dict:
+            do_split: bool = True, do_plot: bool = False, do_decoder_conv: bool = False) -> dict:
     """Full pipeline. Returns a dict of every result (also written to disk)."""
     outdir.mkdir(parents=True, exist_ok=True)
     print(f"[{cfg.label}] repo={REPO_ROOT}\n[{cfg.label}] outdir={outdir}")
@@ -705,12 +769,14 @@ def run_all(cfg: Config, outdir: pathlib.Path, *, do_onset: bool = False,
     )
     print(f"\nwrote {outdir/'bb6_fig10.npz'}")
 
+    dconv = run_decoder_convergence(cfg, outdir) if do_decoder_conv else None
+
     if do_plot:
         print("\nplotting ...")
         make_plot(cfg, is_result, tech1, tech3, outdir)
 
     print(f"\n[{cfg.label}] done.")
-    return {"tech1": tech1, "tech2": tech2, "tech3": tech3, "is": is_result}
+    return {"tech1": tech1, "tech2": tech2, "tech3": tech3, "is": is_result, "dconv": dconv}
 
 
 def main() -> None:
@@ -747,6 +813,12 @@ def main() -> None:
                     help="override chain steps per level (default 50000)")
     ap.add_argument("--split-n-seeds", type=int, default=None,
                     help="override number of seed chains per level (default 32)")
+    ap.add_argument("--code", choices=sorted(CODES), default=None,
+                    help="bivariate-bicycle code (default bb72=BB(6); bb144=BB(12)). Sets rounds=d "
+                         "unless --rounds is given.")
+    ap.add_argument("--decoder-conv", action="store_true",
+                    help="also measure Relay-BP decoder convergence (LER vs num_sets legs) on the "
+                         "full DEM -> decoder_convergence.json")
     ap.add_argument("--plot", action="store_true", help="save the reproduced figure PNG")
     ap.add_argument("--max-cores", type=int, default=None,
                     help="cap parallelism to N cores so the machine stays responsive (sets "
@@ -767,6 +839,9 @@ def main() -> None:
               f"(RAYON_NUM_THREADS={n}, mw_workers≤{n})")
 
     cfg = Config.smoke() if args.smoke else Config.production()
+    if args.code is not None:
+        cfg.code, cfg.code_label = CODES[args.code]
+        if args.rounds is None: cfg.rounds = cfg.code.distance   # default rounds = code distance
     if args.rounds is not None: cfg.rounds = args.rounds
     if args.p_ref is not None:  cfg.p_ref = args.p_ref
     if args.shots is not None:  cfg.shots_per_weight = args.shots
@@ -775,7 +850,9 @@ def main() -> None:
     if args.mw_workers is not None: cfg.mw_workers = args.mw_workers
     if args.max_cores is not None: cfg.mw_workers = min(cfg.mw_workers, max(1, int(args.max_cores)))
     if args.no_symmetry: cfg.mw_use_symmetry = False
-    if args.full_dem: cfg.mw_single_sector = False
+    if args.full_dem:
+        cfg.mw_single_sector = False
+        cfg.mw_f0_override = None     # the exact-onset pin is single-sector-only → run the search
     if args.split_p_low is not None: cfg.split_p_low = args.split_p_low
     if args.split_n_levels is not None: cfg.split_n_levels = args.split_n_levels
     if args.split_chain_steps is not None: cfg.split_chain_steps = args.split_chain_steps
@@ -790,7 +867,8 @@ def main() -> None:
         print(f"\n[split-only] done. P at p_low={cfg.split_p_low}: {tech3['P_logical'][-1]:.3e}")
         return
 
-    run_all(cfg, outdir, do_onset=args.onset_scan, do_split=not args.no_split, do_plot=args.plot)
+    run_all(cfg, outdir, do_onset=args.onset_scan, do_split=not args.no_split, do_plot=args.plot,
+            do_decoder_conv=args.decoder_conv)
 
 
 if __name__ == "__main__":

@@ -206,6 +206,169 @@ def expanded_logical_count(logical_supports, multipliers) -> int:
     return int(total)
 
 
+def exact_min_weight_logicals_mitm(
+    H: np.ndarray,
+    A: np.ndarray,
+    det_coords: Dict[int, Tuple[int, int, int]],
+    *,
+    l: int = 6,
+    m: int = 6,
+    weight: int = 6,
+    seed: int = 12345,
+    verbose: bool = True,
+) -> Set[FrozenSet[int]]:
+    """Exact complete weight-``weight`` logical enumeration via anchored 2+2+2 MITM.
+
+    Generalizes ``bb6_exact_enum_mitm.py`` to ANY DEM representation (single-sector or full
+    both-sector): finds every weight-``weight`` column subset S of H with ``H·1_S = 0`` and
+    ``A·1_S ≠ 0`` (the minimum-weight logical operators), then expands by the ``l*m`` toric
+    translation permutations. Returns a set of frozensets of column indices (compressed).
+
+    ``det_coords`` maps each ROW of H to ``(type, s, c)`` (from :func:`single_sector_dem`, or
+    built from ``circuit.get_detector_coordinates()`` for the full DEM). Detectors are remapped
+    internally into ``(type, c, s)``-sorted order so each ``l*m`` toric orbit is a contiguous
+    block and the canonical anchors are ``block*l*m`` — independent of the input numbering.
+    The algorithm (anchored 2+2+2 + 64-bit GF(2) hash) is representation-agnostic; only the
+    matrices and detector layout change. Specialized to ``weight == 6`` (the 2+2+2 split);
+    other distances need a different split.
+    """
+    import itertools, time
+    if weight != 6:
+        raise NotImplementedError("exact MITM is specialized to weight 6 (the 2+2+2 split)")
+    n_det, N = H.shape
+    lm = l * m
+    if n_det % lm != 0:
+        raise ValueError(f"n_det={n_det} not divisible by l*m={lm}; toric orbit blocks ill-defined")
+
+    # Remap detector rows into (type, c, s) order: each (type,c) orbit becomes a contiguous block
+    # of lm rows with s as the in-block phase, so the canonical anchors are block*lm regardless of
+    # the input detector numbering (single_sector_dem and the full DEM number detectors differently).
+    order = sorted(range(n_det), key=lambda d: (int(det_coords[d][0]), int(det_coords[d][2]),
+                                                int(det_coords[d][1])))
+    Hr = H[order, :]
+    coords_r = {i: det_coords[order[i]] for i in range(n_det)}
+    for b in range(n_det // lm):
+        blk = [coords_r[b * lm + k] for k in range(lm)]
+        if len({(t, c) for (t, s, c) in blk}) != 1 or len({s for (t, s, c) in blk}) != lm:
+            raise ValueError("toric orbit blocks malformed after remap (need lm phases per (type,c))")
+
+    # Per-column detector / observable bitmasks (Python big-ints).
+    col_h = [0] * N
+    col_a = [0] * N
+    for j in range(N):
+        h = 0
+        for d in np.flatnonzero(Hr[:, j]):
+            h |= (1 << int(d))
+        col_h[j] = h
+        a = 0
+        for r in np.flatnonzero(A[:, j]):
+            a |= (1 << int(r))
+        col_a[j] = a
+
+    mindet = [((col_h[j] & -col_h[j]).bit_length() - 1) if col_h[j] else -1 for j in range(N)]
+    cols_mindet: List[List[int]] = [[] for _ in range(n_det)]
+    for j in range(N):
+        if mindet[j] >= 0:
+            cols_mindet[mindet[j]].append(j)
+
+    # GF(2)-linear 64-bit hash of the n_det-bit detector mask: hash(x^y)=hash(x)^hash(y). Random
+    # masks span n_det bits (widened from the single-sector 288). Exact col_h checks below catch any
+    # hash collision, so the hash only prunes — its values do not affect correctness.
+    rng = np.random.default_rng(seed)
+    nchunk = (n_det + 31) // 32
+    masks = []
+    for _ in range(64):
+        msk = 0
+        for ch in range(nchunk):
+            msk |= int(rng.integers(0, 1 << 32)) << (32 * ch)
+        masks.append(msk & ((1 << n_det) - 1))
+    col_hash = np.zeros(N, dtype=np.uint64)
+    for j in range(N):
+        x = col_h[j]; h = 0
+        for b in range(64):
+            if bin(x & masks[b]).count("1") & 1:
+                h |= (1 << b)
+        col_hash[j] = np.uint64(h)
+
+    def Axor(cols):
+        a = 0
+        for c in cols:
+            a ^= col_a[c]
+        return a
+
+    results: Set[FrozenSet[int]] = set()
+    t0 = time.time()
+    canon = [b * lm for b in range(n_det // lm)]
+    for d0 in canon:
+        cols0 = cols_mindet[d0]
+        cand = np.array([c for c in range(N) if mindet[c] > d0], dtype=np.int64)
+        nc = len(cand)
+        pi, pj = np.triu_indices(nc, 1)
+        P1 = cand[pi]; P2 = cand[pj]
+        phash = col_hash[P1] ^ col_hash[P2]
+        order_h = np.argsort(phash, kind="stable")
+        phash_s = phash[order_h]
+        # |S0| = 2: anchor pair (a,b) from cols0; remaining 4 = two cand-pairs matched by hash.
+        for a, b in itertools.combinations(cols0, 2):
+            Tfull = col_h[a] ^ col_h[b]
+            Th = np.uint64(col_hash[a] ^ col_hash[b])
+            q = phash ^ Th
+            pos = np.searchsorted(phash_s, q)
+            ok = pos < len(phash_s)
+            pos2 = np.where(ok, np.minimum(pos, len(phash_s) - 1), 0)
+            match = ok & (phash_s[pos2] == q)
+            for mm in np.flatnonzero(match):
+                k2 = order_h[pos2[mm]]
+                i1, j1 = int(P1[mm]), int(P2[mm])
+                i2, j2 = int(P1[k2]), int(P2[k2])
+                six = {a, b, i1, j1, i2, j2}
+                if len(six) != 6:
+                    continue
+                if (col_h[i1] ^ col_h[j1] ^ col_h[i2] ^ col_h[j2]) != Tfull:
+                    continue
+                if Axor(six) == 0:
+                    continue
+                results.add(frozenset(six))
+        # |S0| = 4: anchor 4 cols from cols0; remaining pair (only when 4+ cols share this anchor).
+        if len(cols0) >= 4:
+            pset: Dict[int, List[int]] = {}
+            for idx in range(len(phash)):
+                pset.setdefault(int(phash[idx]), []).append(idx)
+            for S0 in itertools.combinations(cols0, 4):
+                T = 0; Th = 0
+                for c in S0:
+                    T ^= col_h[c]; Th ^= int(col_hash[c])
+                for idx in pset.get(Th, []):
+                    i1, j1 = int(P1[idx]), int(P2[idx])
+                    if (col_h[i1] ^ col_h[j1]) != T:
+                        continue
+                    six = set(S0) | {i1, j1}
+                    if len(six) != 6:
+                        continue
+                    if Axor(six) == 0:
+                        continue
+                    results.add(frozenset(six))
+        # |S0| = 6: all six columns share this anchor detector.
+        if len(cols0) >= 6:
+            for S0 in itertools.combinations(cols0, 6):
+                x = 0
+                for c in S0:
+                    x ^= col_h[c]
+                if x == 0 and Axor(S0) != 0:
+                    results.add(frozenset(S0))
+    if verbose:
+        print(f"  [mitm] {len(results)} canonical weight-6 logicals ({time.time() - t0:.0f}s)", flush=True)
+
+    perms = build_circuit_translation_perms(None, Hr, l=l, m=m, det_coords=coords_r, verbose=False)
+    full: Set[FrozenSet[int]] = set()
+    for L in results:
+        for p in perms:
+            full.add(frozenset(int(p[c]) for c in L))
+    if verbose:
+        print(f"  [mitm] |L(D)| = {len(full)} after {len(perms)}-shift expansion", flush=True)
+    return full
+
+
 def dem_check_action_matrices(
     circuit: stim.Circuit,
     sector: Optional[int] = None,
@@ -453,8 +616,14 @@ def find_min_weight_logicals(
     symmetry_perms: Optional[List[np.ndarray]] = None,
     sector: Optional[int] = None,
     matrices: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
-) -> Set[FrozenSet[int]]:
+    return_trace: bool = False,
+):
     """Search for L(D), the set of weight-D logical bitstrings (paper §4.2).
+
+    ``return_trace=True`` additionally returns a saturation trace ``[(cumulative_trials,
+    |L(D)| found), ...]`` recorded each time the count grows (systematic then random phases) —
+    for the search-convergence plot, which should plateau once all min-weight logicals are found.
+    Returns ``found`` (a set) normally, or ``(found, trace)`` when ``return_trace`` is set.
 
     ``systematic=True`` (default) exhaustively enumerates all 2^K − 1 nonzero GF(2)
     combinations of the K logical generators before any random trials, fully covering
@@ -505,6 +674,7 @@ def find_min_weight_logicals(
         nproc = min(int(workers), os.cpu_count() or 1)
         base_seed = 0 if seed is None else int(seed)
         found_p: Set[FrozenSet[int]] = set()
+        trace: List[Tuple[int, int]] = []
 
         with Pool(nproc, initializer=_mw_init, initargs=(H, A, priors, osd_order, max_iter)) as pool:
             # Phase 1: systematic sweep of all 2^K - 1 syndrome classes.
@@ -520,6 +690,7 @@ def find_min_weight_logicals(
                         if support not in found_p:
                             found_p.add(support)
                             _expand_by_sym(support, found_p)
+                            trace.append((n, len(found_p)))
                     if progress_every and n % progress_every == 0:
                         print(f"      L(D) systematic: {n}/{n_systematic}, "
                               f"|L(D)|={len(found_p)}", flush=True)
@@ -535,16 +706,18 @@ def find_min_weight_logicals(
                         if support not in found_p:
                             found_p.add(support)
                             _expand_by_sym(support, found_p)
+                            trace.append((n_systematic + n, len(found_p)))
                     if progress_every and n % progress_every == 0:
                         print(f"      L(D) random [parallel x{nproc}]: {n}/{max_trials}, "
                               f"|L(D)|={len(found_p)}", flush=True)
 
-        return found_p
+        return (found_p, trace) if return_trace else found_p
 
     rng = np.random.default_rng(seed)
     syndrome = np.zeros(M + 1, dtype=np.uint8)
     syndrome[M] = 1
     found: Set[FrozenSet[int]] = set()
+    trace: List[Tuple[int, int]] = []
     no_new = 0
 
     # Systematic phase (serial).
@@ -563,6 +736,7 @@ def find_min_weight_logicals(
                 if support not in found:
                     found.add(support)
                     _expand_by_sym(support, found)
+                    trace.append((n, len(found)))
             if progress_every and n % progress_every == 0:
                 print(f"      L(D) systematic: {n}/{n_systematic}, |L(D)|={len(found)}", flush=True)
 
@@ -583,12 +757,13 @@ def find_min_weight_logicals(
             if support not in found:
                 found.add(support)
                 _expand_by_sym(support, found)
+                trace.append((n_systematic + trial + 1, len(found)))
                 no_new = 0
                 continue
         no_new += 1
         if no_new >= patience:
             break
-    return found
+    return (found, trace) if return_trace else found
 
 
 def find_all_min_weight_logicals(
