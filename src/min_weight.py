@@ -206,6 +206,108 @@ def expanded_logical_count(logical_supports, multipliers) -> int:
     return int(total)
 
 
+# ---------------------------------------------------------------------------
+# Anchored weight-6 MITM — per-anchor / per-anchor-pair-chunk canonical enumeration (module-level
+# so it is picklable under the Windows 'spawn' start method for the optional process pool).
+#
+# The detector bitmasks (col_h), observable bitmasks (col_a) and per-column min-detector (mindet)
+# are large Python-int lists shared once via the pool initializer; each worker enumerates the
+# canonical weight-6 logicals for a slice of one anchor's seed pairs and returns only the small
+# result set. The (anchor, pair-slice) tasks are independent, so the merged union is complete.
+# ---------------------------------------------------------------------------
+_MITM: Dict[str, object] = {}
+
+
+def _mitm_init(col_h, col_a, mindet, n_det) -> None:
+    _MITM.clear()
+    _MITM.update(col_h=col_h, col_a=col_a, mindet=mindet, n_det=n_det, _cache={})
+
+
+def _mitm_prepare(d0: int):
+    """Per-anchor scratch (cols0, det_cols, hmap), cached so repeated anchor-pair chunks of the
+    same ``d0`` build it only once in a given worker process."""
+    cache = _MITM["_cache"]
+    if d0 in cache:
+        return cache[d0]
+    col_h = _MITM["col_h"]; mindet = _MITM["mindet"]; n_det = _MITM["n_det"]
+    cols0 = [c for c in range(len(mindet)) if mindet[c] == d0]
+    det_cols: List[List[int]] = [[] for _ in range(n_det)]
+    hmap: Dict[int, int] = {}
+    for c in range(len(mindet)):
+        if mindet[c] < d0:
+            continue
+        h = col_h[c]
+        hmap[h] = c                     # column supports are distinct -> unique key
+        x = h
+        while x:
+            det_cols[(x & -x).bit_length() - 1].append(c)
+            x &= x - 1
+    cache[d0] = (cols0, det_cols, hmap)
+    return cache[d0]
+
+
+def _mitm_chunk(task) -> Set[FrozenSet[int]]:
+    """Enumerate weight-6 logicals for a slice ``[lo, hi)`` of anchor d0's ordered anchor pairs.
+
+    A weight-6 logical S (⊕col_h = 0, ⊕col_a ≠ 0) with global-min detector d0 has ≥2 columns
+    touching d0 — and any column touching d0 has min-detector == d0 (none touch a lower one), so
+    those columns lie in ``cols0`` (min-detector == d0). We seed every anchor *pair* (a, b) ⊂ cols0
+    (cancelling d0) and complete the remaining four columns r1..r4 drawn from the columns with
+    min-detector ≥ d0 (so additional cols0 columns are permitted — this folds the |S0|=4 and |S0|=6
+    cases into the same branch). The four are found by a 4-deep *pivot chain*: at each step the
+    residual XOR ``T`` the still-unchosen columns must produce is nonzero, so its lowest set bit
+    ``lowbit(T)`` is touched by an odd (hence ≥1) number of them — the next column is enumerated
+    only from ``det_cols[lowbit(T)]``, never the full O(N²) pair list; the last column is fixed
+    exactly by a ``col_h`` hash-map lookup.
+
+    Splitting an anchor's pair list into ``[lo, hi)`` slices lets the big anchors (large ``cols0``)
+    be load-balanced across all workers instead of one anchor bounding the wall-time.
+
+    Completeness: the chain misses S only if some intermediate residual hits 0 with columns still
+    to place — i.e. a proper prefix of S is itself a null cycle (a stabilizer). Its complement is
+    then a logical (⊕col_a ≠ 0, ⊕col_h = 0) of weight < 6, contradicting distance D = 6. So for a
+    true weight-6 logical no intermediate residual is 0 and S is always found; ``frozenset`` dedup
+    absorbs the orderings of the four completion columns.
+    """
+    d0, lo, hi = task
+    CH = _MITM["col_h"]; CA = _MITM["col_a"]
+    cols0, det_cols, hmap = _mitm_prepare(d0)
+    hget = hmap.get
+    res: Set[FrozenSet[int]] = set()
+    if len(cols0) < 2:
+        return res
+    add = res.add
+    # Map a flat pair index range [lo,hi) onto (i, j) upper-triangular pairs of cols0 without
+    # materializing the whole list.
+    import itertools as _it
+    pair_iter = _it.islice(_it.combinations(cols0, 2), lo, hi)
+    for a, b in pair_iter:
+        Tfull = CH[a] ^ CH[b]
+        if Tfull == 0:
+            continue
+        for c1 in det_cols[(Tfull & -Tfull).bit_length() - 1]:
+            if c1 == a or c1 == b:
+                continue
+            T1 = Tfull ^ CH[c1]
+            if T1 == 0:
+                continue
+            for c2 in det_cols[(T1 & -T1).bit_length() - 1]:
+                if c2 == a or c2 == b or c2 == c1:
+                    continue
+                T2 = T1 ^ CH[c2]
+                if T2 == 0:
+                    continue
+                for c3 in det_cols[(T2 & -T2).bit_length() - 1]:
+                    if c3 == a or c3 == b or c3 == c1 or c3 == c2:
+                        continue
+                    c4 = hget(T2 ^ CH[c3])
+                    if c4 is None or c4 == a or c4 == b or c4 == c1 or c4 == c2 or c4 == c3:
+                        continue
+                    if (CA[a] ^ CA[b] ^ CA[c1] ^ CA[c2] ^ CA[c3] ^ CA[c4]) != 0:
+                        add(frozenset((a, b, c1, c2, c3, c4)))
+    return res
+
+
 def exact_min_weight_logicals_mitm(
     H: np.ndarray,
     A: np.ndarray,
@@ -217,7 +319,7 @@ def exact_min_weight_logicals_mitm(
     seed: int = 12345,
     verbose: bool = True,
 ) -> Set[FrozenSet[int]]:
-    """Exact complete weight-``weight`` logical enumeration via anchored 2+2+2 MITM.
+    """Exact complete weight-``weight`` logical enumeration via anchored pivot-chain MITM.
 
     Generalizes ``bb6_exact_enum_mitm.py`` to ANY DEM representation (single-sector or full
     both-sector): finds every weight-``weight`` column subset S of H with ``H·1_S = 0`` and
@@ -228,11 +330,22 @@ def exact_min_weight_logicals_mitm(
     built from ``circuit.get_detector_coordinates()`` for the full DEM). Detectors are remapped
     internally into ``(type, c, s)``-sorted order so each ``l*m`` toric orbit is a contiguous
     block and the canonical anchors are ``block*l*m`` — independent of the input numbering.
-    The algorithm (anchored 2+2+2 + 64-bit GF(2) hash) is representation-agnostic; only the
-    matrices and detector layout change. Specialized to ``weight == 6`` (the 2+2+2 split);
-    other distances need a different split.
+
+    Algorithm (specialized to ``weight == 6``): each weight-6 logical is canonicalized by its
+    global-minimum detector, which a 36-shift toric translation maps onto one of the ``n_det/lm``
+    canonical anchors ``block*lm`` — so only those anchors are searched, then the results are
+    expanded by the ``lm`` translations. At an anchor d0 the logical is an anchor *pair* (two
+    columns whose min-detector is d0) plus four completion columns found by a detector-pivot chain
+    (see :func:`_mitm_chunk`). The pivot chain enumerates each completion column only from the
+    columns touching the current residual's lowest detector — tens of candidates — instead of the
+    original's O(N²) pair table + per-anchor-pair ``searchsorted``, which made the full DEM (N≈16k)
+    intractable. The independent anchors are run across a process pool when the work is large.
+
+    ``seed`` is retained for signature compatibility but is now unused: the pivot chain closes each
+    candidate with an *exact* ``col_h`` lookup, so the probabilistic GF(2) hash of the original
+    (and its collision guard) is no longer needed.
     """
-    import itertools, time
+    import os, time
     if weight != 6:
         raise NotImplementedError("exact MITM is specialized to weight 6 (the 2+2+2 split)")
     n_det, N = H.shape
@@ -252,110 +365,73 @@ def exact_min_weight_logicals_mitm(
         if len({(t, c) for (t, s, c) in blk}) != 1 or len({s for (t, s, c) in blk}) != lm:
             raise ValueError("toric orbit blocks malformed after remap (need lm phases per (type,c))")
 
-    # Per-column detector / observable bitmasks (Python big-ints).
+    # Per-column detector / observable bitmasks (Python big-ints) — vectorized per column from the
+    # sparse CSC structure so N≈16k columns build in well under a second.
+    from scipy.sparse import csc_matrix
+    Hs = csc_matrix(Hr); As = csc_matrix(A.astype(np.uint8))
     col_h = [0] * N
     col_a = [0] * N
     for j in range(N):
         h = 0
-        for d in np.flatnonzero(Hr[:, j]):
+        for d in Hs.indices[Hs.indptr[j]:Hs.indptr[j + 1]]:
             h |= (1 << int(d))
         col_h[j] = h
         a = 0
-        for r in np.flatnonzero(A[:, j]):
+        for r in As.indices[As.indptr[j]:As.indptr[j + 1]]:
             a |= (1 << int(r))
         col_a[j] = a
 
     mindet = [((col_h[j] & -col_h[j]).bit_length() - 1) if col_h[j] else -1 for j in range(N)]
-    cols_mindet: List[List[int]] = [[] for _ in range(n_det)]
-    for j in range(N):
-        if mindet[j] >= 0:
-            cols_mindet[mindet[j]].append(j)
-
-    # GF(2)-linear 64-bit hash of the n_det-bit detector mask: hash(x^y)=hash(x)^hash(y). Random
-    # masks span n_det bits (widened from the single-sector 288). Exact col_h checks below catch any
-    # hash collision, so the hash only prunes — its values do not affect correctness.
-    rng = np.random.default_rng(seed)
-    nchunk = (n_det + 31) // 32
-    masks = []
-    for _ in range(64):
-        msk = 0
-        for ch in range(nchunk):
-            msk |= int(rng.integers(0, 1 << 32)) << (32 * ch)
-        masks.append(msk & ((1 << n_det) - 1))
-    col_hash = np.zeros(N, dtype=np.uint64)
-    for j in range(N):
-        x = col_h[j]; h = 0
-        for b in range(64):
-            if bin(x & masks[b]).count("1") & 1:
-                h |= (1 << b)
-        col_hash[j] = np.uint64(h)
-
-    def Axor(cols):
-        a = 0
-        for c in cols:
-            a ^= col_a[c]
-        return a
 
     results: Set[FrozenSet[int]] = set()
     t0 = time.time()
     canon = [b * lm for b in range(n_det // lm)]
+
+    # Per-anchor column counts (cols whose min-detector == d0), used to size anchor-pair work.
+    from math import comb as _comb
+    cnt0 = [0] * n_det
+    for c in range(N):
+        if mindet[c] >= 0:
+            cnt0[mindet[c]] += 1
+
+    # Build (d0, lo, hi) tasks: each is a slice of anchor d0's C(|cols0|,2) ordered pairs. The big
+    # anchors are split into several chunks so all workers stay busy (one huge anchor would otherwise
+    # bound the wall-time). Chunk size targets a few× the worker count of total tasks.
+    anchor_pairs = sum(_comb(cnt0[d0], 2) for d0 in canon)
+    ncpu = os.cpu_count() or 1
+    target_tasks = max(4 * ncpu, 1)
+    chunk = max(1, anchor_pairs // target_tasks)
+    tasks: List[Tuple[int, int, int]] = []
     for d0 in canon:
-        cols0 = cols_mindet[d0]
-        cand = np.array([c for c in range(N) if mindet[c] > d0], dtype=np.int64)
-        nc = len(cand)
-        pi, pj = np.triu_indices(nc, 1)
-        P1 = cand[pi]; P2 = cand[pj]
-        phash = col_hash[P1] ^ col_hash[P2]
-        order_h = np.argsort(phash, kind="stable")
-        phash_s = phash[order_h]
-        # |S0| = 2: anchor pair (a,b) from cols0; remaining 4 = two cand-pairs matched by hash.
-        for a, b in itertools.combinations(cols0, 2):
-            Tfull = col_h[a] ^ col_h[b]
-            Th = np.uint64(col_hash[a] ^ col_hash[b])
-            q = phash ^ Th
-            pos = np.searchsorted(phash_s, q)
-            ok = pos < len(phash_s)
-            pos2 = np.where(ok, np.minimum(pos, len(phash_s) - 1), 0)
-            match = ok & (phash_s[pos2] == q)
-            for mm in np.flatnonzero(match):
-                k2 = order_h[pos2[mm]]
-                i1, j1 = int(P1[mm]), int(P2[mm])
-                i2, j2 = int(P1[k2]), int(P2[k2])
-                six = {a, b, i1, j1, i2, j2}
-                if len(six) != 6:
-                    continue
-                if (col_h[i1] ^ col_h[j1] ^ col_h[i2] ^ col_h[j2]) != Tfull:
-                    continue
-                if Axor(six) == 0:
-                    continue
-                results.add(frozenset(six))
-        # |S0| = 4: anchor 4 cols from cols0; remaining pair (only when 4+ cols share this anchor).
-        if len(cols0) >= 4:
-            pset: Dict[int, List[int]] = {}
-            for idx in range(len(phash)):
-                pset.setdefault(int(phash[idx]), []).append(idx)
-            for S0 in itertools.combinations(cols0, 4):
-                T = 0; Th = 0
-                for c in S0:
-                    T ^= col_h[c]; Th ^= int(col_hash[c])
-                for idx in pset.get(Th, []):
-                    i1, j1 = int(P1[idx]), int(P2[idx])
-                    if (col_h[i1] ^ col_h[j1]) != T:
-                        continue
-                    six = set(S0) | {i1, j1}
-                    if len(six) != 6:
-                        continue
-                    if Axor(six) == 0:
-                        continue
-                    results.add(frozenset(six))
-        # |S0| = 6: all six columns share this anchor detector.
-        if len(cols0) >= 6:
-            for S0 in itertools.combinations(cols0, 6):
-                x = 0
-                for c in S0:
-                    x ^= col_h[c]
-                if x == 0 and Axor(S0) != 0:
-                    results.add(frozenset(S0))
+        npair = _comb(cnt0[d0], 2)
+        for lo in range(0, npair, chunk):
+            tasks.append((d0, lo, min(lo + chunk, npair)))
+
+    # Run across a process pool when the search is large enough to amortize the (Windows 'spawn')
+    # process + pickle overhead. Cost grows with anchor_pairs and, super-linearly, with the
+    # pivot-chain branching ~ the mean columns-per-detector (N / n_det). The serial path is identical
+    # (used for small problems such as the single-sector DEM, where spawning would dominate) and for
+    # nested/daemon contexts where a child pool is disallowed. NOTE: when a *caller's* script triggers
+    # the pool it must guard its entry with ``if __name__ == "__main__":`` (the multiprocessing
+    # 'spawn' rule); otherwise each spawned worker re-executes the script.
+    import multiprocessing as _mp
+    avg_deg = N / max(n_det, 1)
+    cost = anchor_pairs * avg_deg * avg_deg
+    use_pool = cost > 5_000_000 and ncpu > 1 and not _mp.current_process().daemon
+    if use_pool:
+        try:
+            nproc = min(len(tasks), ncpu)
+            with _mp.Pool(nproc, initializer=_mitm_init,
+                          initargs=(col_h, col_a, mindet, n_det)) as pool:
+                for r in pool.imap_unordered(_mitm_chunk, tasks):
+                    results |= r
+        except (OSError, ValueError, RuntimeError, ImportError):
+            use_pool = False
+    if not use_pool:
+        _mitm_init(col_h, col_a, mindet, n_det)
+        for t in tasks:
+            results |= _mitm_chunk(t)
+
     if verbose:
         print(f"  [mitm] {len(results)} canonical weight-6 logicals ({time.time() - t0:.0f}s)", flush=True)
 
