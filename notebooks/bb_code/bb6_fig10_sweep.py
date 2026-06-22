@@ -789,6 +789,9 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=None, help="override syndrome rounds (default d=6)")
     ap.add_argument("--p-ref", type=float, default=None, help="override circuit build rate")
     ap.add_argument("--shots", type=int, default=None, help="override shots per weight")
+    ap.add_argument("--weights-hi", type=int, default=None,
+                    help="cap the IS sweep weights to range(2, hi+1) (full-DEM decodes are slow at "
+                         "mid weights; the ansatz saturates by w~40)")
     ap.add_argument("--seed", type=int, default=None, help="override base RNG seed")
     ap.add_argument("--mw-max-trials", type=int, default=None,
                     help="cap Technique-II L(D) search trials (lower = faster, less complete L(D); "
@@ -845,6 +848,7 @@ def main() -> None:
     if args.rounds is not None: cfg.rounds = args.rounds
     if args.p_ref is not None:  cfg.p_ref = args.p_ref
     if args.shots is not None:  cfg.shots_per_weight = args.shots
+    if args.weights_hi is not None: cfg.weights = list(range(2, args.weights_hi + 1))
     if args.seed is not None:   cfg.seed = args.seed
     if args.mw_max_trials is not None: cfg.mw_max_trials = args.mw_max_trials
     if args.mw_workers is not None: cfg.mw_workers = args.mw_workers
