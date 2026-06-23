@@ -372,8 +372,9 @@ def fig_compare_ler(R_single, R_full, ax=None):
         _, ax = plt.subplots(figsize=(8.6, 5.6))
     for R, col, tag in ((R_single, "crimson", "single-sector (Z)"), (R_full, "navy", "full DEM")):
         ax.plot(R["p_grid"], R["LER"]["f3"], "-", color=col, lw=2,
-                label=f"{R['meta']['code_label']} · {tag} (f3)")
-        ax.plot(R["isp"], R["isL"], "o", color=col, ms=3, alpha=0.45)
+                label=f"{tag}: f3 ansatz (authoritative)")
+        ax.plot(R["isp"], R["isL"], "o", color=col, ms=3, alpha=0.4,
+                label=f"{tag}: raw IS points (collapse at low p — undersampled)")
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel(r"Physical error rate $p$"); ax.set_ylabel("Logical error rate")
     ax.set_title("LER(p): single-sector vs full DEM")
