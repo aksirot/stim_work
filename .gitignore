@@ -21,6 +21,7 @@ build/
 bench_results_*.json
 
 # Sweep / splitting run output (generated checkpoints, npz, plots, logs)
+runs/
 sweep_out/
 splitting_vs_is.png
 bb6_fig10_out*/

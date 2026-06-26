@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stim-work-qec"
+version = "0.0.0"
+description = "Fail-fast QEC techniques (importance sampling, replica-exchange splitting, min-weight distance/onset) for bivariate-bicycle codes."
+requires-python = ">=3.9"
+
+# Flat module layout under src/. An editable install (`pip install -e .`) puts these on the path so
+# notebooks/scripts can `import bb_code_sim`, `import bb6_report`, etc. from any working directory —
+# no more sys.path.insert hacks. The three core algorithms are importance_sampling / splitting /
+# min_weight; the simulators are bb_code_sim (Bravyi BB) / surface_code_sim / gross_code_lpu_tdg
+# (Tour de Gross); bb6_report is the shared analysis/plotting layer.
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = [
+    "importance_sampling",
+    "splitting",
+    "min_weight",
+    "bb_code_sim",
+    "surface_code_sim",
+    "gross_code_lpu_tdg",
+    "bb6_report",
+    "repo_paths",
+]
