@@ -664,6 +664,7 @@ def replica_exchange_estimate(
     single_sector: bool = False,
     sector: int = 0,
     mw_supports=None,
+    seed_p_grid: Optional[Sequence[float]] = None,
     verbose: bool = True,
 ) -> Tuple[SplittingResult, dict]:
     """Replica-exchange (parallel-tempering) splitting estimate of P_logical(p_low).
@@ -710,24 +711,37 @@ def replica_exchange_estimate(
     if P_high <= 0.0:
         raise ValueError(f"direct MC at p_high={p_high:g} saw no failures; raise p_high/anchor_shots")
 
-    # Failing-config seed pool: min-weight logicals (low weight) + MC typical (high weight).
+    # Optional: harvest INTERMEDIATE-weight failing seeds from direct MC at crossover rates, so the
+    # pool spans the weight gap between the near-onset min-weight logicals and the high-q typicals —
+    # the empty band that strands single-flip mixing (the 0.14-swap bottleneck in the original run).
+    mid_seeds: List[FrozenSet[int]] = []
+    for p_s in (seed_p_grid or []):
+        q_s = float(np.clip(q_base * (p_s / p_ref), 1e-300, 1.0 - 1e-15))
+        _, _, s = _direct_mc_failure_prob(det_mat, obs_mat, col_to_mech, decoder, q_s, anchor_shots, rng)
+        mid_seeds += s
+    if verbose and seed_p_grid:
+        print(f"  [tempering] harvested {len(mid_seeds)} intermediate seeds at p={list(seed_p_grid)}", flush=True)
+
+    # Failing-config seed pool: min-weight logicals (low weight) + intermediate (crossover MC) + typical.
     pool: List[FrozenSet[int]] = []
     pool += min_weight_logical_seeds(circuit, col_to_mech, det_mat, obs_mat, decoder,
                                      distance=distance, seed=int(rng.integers(2**31)),
                                      sector=(sector if single_sector else None), supports=mw_supports)
+    pool += mid_seeds
     pool += mc_seeds
     if not pool:
         raise ValueError("no failing seed configs found")
 
-    # Initialise walkers: each is a list of L+1 failing configs (one per rate). Seed lower rates
-    # with low-weight (min-weight) configs and higher rates with high-weight (MC) configs when
-    # available, to give tempering a head start; swaps fix any mismatch.
-    lo_pool = [s for s in pool if len(s) <= distance + 4] or pool   # low-weight (min-weight logicals)
-    hi_pool = mc_seeds or pool                                       # high-weight (typical at q_high)
-    def pick(p): return set(p[int(rng.integers(len(p)))])
-    # level 0 = highest q (seed high weight) ... level L = lowest q (seed low weight)
-    replicas = [[pick(hi_pool if i <= L // 2 else lo_pool) for i in range(L + 1)]
-                for _ in range(n_walkers)]
+    # Initialise walkers: seed each rung with a failing config whose WEIGHT matches the rung's rate —
+    # high q (rung 0) gets high-weight typicals, low q (rung L) near-onset configs, and the crossover
+    # rungs the intermediate seeds. This bridges the weight gap rather than the old bimodal hi/lo split.
+    pool_sorted = sorted(pool, key=len)               # ascending weight
+    npool = len(pool_sorted)
+    def seed_for_rung(i):
+        center = (1.0 - i / L) * (npool - 1)          # rung 0 -> heaviest, rung L -> lightest
+        lo = max(0, int(center) - 2); hi = min(npool - 1, int(center) + 2)
+        return set(pool_sorted[int(rng.integers(lo, hi + 1))])
+    replicas = [[seed_for_rung(i) for i in range(L + 1)] for _ in range(n_walkers)]
 
     swap_attempts = np.zeros(L); swap_accepts = np.zeros(L)
     walker_terms = [[[] for _ in range(L)] for _ in range(n_walkers)]
