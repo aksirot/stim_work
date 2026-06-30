@@ -632,6 +632,61 @@ def _mw_systematic_task(mask: int) -> Optional[Tuple[int, tuple]]:
     return int(corr.sum()), tuple(int(x) for x in np.flatnonzero(corr))
 
 
+def _decimated_correction(H, priors, osd_order, max_iter, g, rng, max_odd):
+    """Decimation (paper §4.2): instead of decoding ``[H; g]`` (the appended logical-forcing row
+    ``g`` is usually HIGH weight, which degrades BP-OSD), FIX the bits in ``supp(g)`` to a low
+    odd-weight assignment so the g-check is unsatisfied, then decode the REDUCED, now-low-weight
+    problem on the remaining columns. The combined solution is a nontrivial logical:
+    ``H@corr=0`` by construction; and ``g@corr = odd = 1`` with ``g=h+l`` (``h`` in rowspace(H),
+    so ``h@corr=0``) forces ``l@corr=1`` — a nonzero logical action.
+
+    Returns the full correction vector (uint8, length N) or None if degenerate.
+    """
+    priors = np.asarray(priors, dtype=float)
+    M, N = H.shape
+    supp_g = np.flatnonzero(g)
+    if supp_g.size == 0 or supp_g.size >= N:
+        return None
+    odds = [k for k in range(1, max_odd + 1, 2) if k <= supp_g.size]
+    k = int(rng.choice(odds)) if odds else 1
+    set_pos = supp_g[rng.choice(supp_g.size, size=k, replace=False)]
+    x = np.zeros(N, dtype=np.uint8)
+    x[set_pos] = 1
+    sigma = (H.astype(np.int64) @ x.astype(np.int64)) % 2     # syndrome induced by the fixed bits
+    unfixed = np.setdiff1d(np.arange(N, dtype=np.int64), supp_g, assume_unique=True)
+    dec = _bposd(H[:, unfixed], priors[unfixed], osd_order, max_iter)
+    dec.decode(sigma.astype(np.uint8))
+    x[unfixed] = np.asarray(dec.osdw_decoding, dtype=np.uint8)  # unfixed entries were 0
+    return x
+
+
+def _decimated_trial(H, A, priors, osd_order, max_iter, rng, max_odd):
+    """One decimated min-weight-logical trial: g = h + l with h ~ rowspace(H), l ~ rowspace(A)\\{0}
+    (random h varies supp(g) between trials). Returns a valid logical correction or None."""
+    M, N = H.shape
+    K = A.shape[0]
+    l_coeffs = rng.integers(0, 2, size=K)
+    if not l_coeffs.any():
+        l_coeffs[rng.integers(K)] = 1
+    h_coeffs = rng.integers(0, 2, size=M)
+    g = ((h_coeffs @ H) + (l_coeffs @ A)) % 2
+    corr = _decimated_correction(H, priors, osd_order, max_iter, g, rng, max_odd)
+    if corr is None or (H @ corr % 2).any() or not (A @ corr % 2).any():
+        return None
+    return corr
+
+
+def _mw_decimated_trial_task(args) -> Optional[Tuple[int, tuple]]:
+    """Parallel-worker wrapper for a decimated trial (uses the pool-shared _MW matrices)."""
+    trial, base_seed, max_odd = args
+    rng = np.random.default_rng([base_seed, 7777, trial])      # distinct stream from the base search
+    corr = _decimated_trial(_MW["H"], _MW["A"], _MW["priors"], _MW["osd_order"], _MW["max_iter"],
+                            rng, max_odd)
+    if corr is None:
+        return None
+    return int(corr.sum()), tuple(int(x) for x in np.flatnonzero(corr))
+
+
 def _mw_coset_enum_task(args) -> List[tuple]:
     """Enumerate weight-D logicals in one coset via column-exclusion DFS.
 
@@ -780,8 +835,18 @@ def find_min_weight_logicals(
     sector: Optional[int] = None,
     matrices: Optional[Tuple[np.ndarray, np.ndarray, np.ndarray]] = None,
     return_trace: bool = False,
+    decimate: bool = False,
+    decimate_max_odd: int = 3,
 ):
     """Search for L(D), the set of weight-D logical bitstrings (paper §4.2).
+
+    ``decimate=True`` (paper §4.2 "Faster search by decimating the appended row"): for the random
+    trials, build g = h + l (h ~ rowspace(H), l ~ rowspace(A)\\{0}), FIX supp(g) to a low odd-weight
+    assignment, and decode the reduced low-weight problem on the remaining columns — instead of
+    decoding the high-weight ``[H; g]`` directly (which degrades BP-OSD). The paper found this
+    essential for hard cases (e.g. BB(18): weight-18 logicals found only with decimation).
+    ``decimate_max_odd`` bounds the odd number of supp(g) bits set to 1 (sampled from {1,3,..}).
+    Decimation applies to the random-trial phase; the systematic coset sweep is unchanged.
 
     ``return_trace=True`` additionally returns a saturation trace ``[(cumulative_trials,
     |L(D)| found), ...]`` recorded each time the count grows (systematic then random phases) —
@@ -862,8 +927,13 @@ def find_min_weight_logicals(
 
             # Phase 2: random trials for max_trials additional attempts.
             if max_trials > 0:
-                tasks = [(t, base_seed) for t in range(max_trials)]
-                for n, res in enumerate(pool.imap_unordered(_mw_logical_trial_task, tasks, chunksize=4), 1):
+                if decimate:
+                    task_fn = _mw_decimated_trial_task
+                    tasks = [(t, base_seed, decimate_max_odd) for t in range(max_trials)]
+                else:
+                    task_fn = _mw_logical_trial_task
+                    tasks = [(t, base_seed) for t in range(max_trials)]
+                for n, res in enumerate(pool.imap_unordered(task_fn, tasks, chunksize=4), 1):
                     if res is not None and res[0] == D:
                         support = frozenset(res[1])
                         if support not in found_p:
@@ -907,15 +977,18 @@ def find_min_weight_logicals(
         if progress_every and trial > 0 and trial % progress_every == 0:
             print(f"      L(D) search: trial {trial}/{max_trials}, "
                   f"|L(D)|={len(found)} found, no-new streak {no_new}/{patience}", flush=True)
-        coeffs = rng.integers(0, 2, size=K)
-        if not coeffs.any():
-            coeffs[rng.integers(K)] = 1
-        g = (coeffs @ A) % 2
-        dec = _bposd(np.vstack([H, g[None, :]]), priors, osd_order, max_iter)
-        dec.decode(syndrome)
-        corr = np.asarray(dec.osdw_decoding, dtype=np.uint8)
-        is_logical = not (H @ corr % 2).any() and (A @ corr % 2).any()
-        if is_logical and int(corr.sum()) == D:
+        if decimate:
+            corr = _decimated_trial(H, A, priors, osd_order, max_iter, rng, decimate_max_odd)
+        else:
+            coeffs = rng.integers(0, 2, size=K)
+            if not coeffs.any():
+                coeffs[rng.integers(K)] = 1
+            g = (coeffs @ A) % 2
+            dec = _bposd(np.vstack([H, g[None, :]]), priors, osd_order, max_iter)
+            dec.decode(syndrome)
+            c = np.asarray(dec.osdw_decoding, dtype=np.uint8)
+            corr = c if (not (H @ c % 2).any() and (A @ c % 2).any()) else None
+        if corr is not None and int(corr.sum()) == D:
             support = frozenset(np.flatnonzero(corr).tolist())
             if support not in found:
                 found.add(support)

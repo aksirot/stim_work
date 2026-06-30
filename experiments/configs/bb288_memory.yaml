@@ -26,8 +26,15 @@ relay_stop_nconv: 6
 # logicals are found, Proposition 1 gives an exact f0 onset pin for the ansatz (unlike BB(12)'s odd
 # circuit distance). This BP-OSD min-weight search at d~18 over 12 logicals is the slowest step;
 # drop "II" from techniques to skip it.
+# The paper found BB(18)'s weight-18 logicals ONLY with DECIMATION (10^4 instances -> 7 logicals;
+# without it, none), paired with a 2-QEC-cycle FAULT RESTRICTION (search a rounds=2 circuit, not
+# rounds=18) + automorphisms. Both are enabled here (mw_decimate + mw_search_rounds=2). The reduced
+# circuit makes the search tractable; its weight-D logicals are valid for the full circuit.
 mw_workers: 24
 mw_systematic: true
+mw_decimate: true
+mw_decimate_max_odd: 3
+mw_search_rounds: 2
 
 # Technique I / IS — sweep the rising onset region (~110) up through the mass at p_hi (mu~150,
 # w_hi~200). Adaptive 'hit N failures', high->low; the f5 ansatz extrapolates the onset to low p.

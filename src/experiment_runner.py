@@ -181,6 +181,14 @@ class Config:
     mw_sector_type: int = 0
     mw_f0_override: Optional[float] = None   # bb6 exact pin lives in the bb6 YAML, not the default
     mw_w0_override: Optional[int] = None
+    # Decimation (paper §4.2): fix supp(g) odd-weight + decode the reduced low-weight problem, instead
+    # of decoding the high-weight [H;g]. Essential for hard searches (e.g. BB(18) two-gross weight-18).
+    mw_decimate: bool = False
+    mw_decimate_max_odd: int = 3
+    # Fault restriction (paper §4.2): search a circuit with FEWER QEC cycles (e.g. 2) for the
+    # min-weight logicals — far fewer fault columns, so the search is tractable. The found logicals
+    # are valid for the full circuit (a subset). Technique-II ONLY; the rest of the run uses cfg.rounds.
+    mw_search_rounds: Optional[int] = None
 
     # --- Technique III — splitting ---
     split_p_high: float = 0.006
@@ -254,6 +262,16 @@ def build_circuit(cfg: Config):
         return CIRCUIT_BUILDERS[cfg.experiment](cfg)
     except KeyError:
         raise SystemExit(f"unknown experiment {cfg.experiment!r}; choices: {sorted(CIRCUIT_BUILDERS)}")
+
+
+def _technique_ii_circuit(cfg: Config):
+    """Circuit for the Technique-II min-weight search — fault-restricted to cfg.mw_search_rounds QEC
+    cycles when set (paper §4.2 "fault restrictions"), else the full cfg.rounds circuit. The reduced
+    circuit has far fewer fault columns (tractable search); its weight-D logicals are valid for the
+    full circuit. Memory experiments only."""
+    if cfg.mw_search_rounds and cfg.experiment == "memory":
+        return build_circuit(dataclasses.replace(cfg, rounds=int(cfg.mw_search_rounds)))
+    return build_circuit(cfg)
 
 
 # ================================ checkpoint I/O ==================================
@@ -439,15 +457,18 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
 
     cached = _load_json(outdir / "distance.json")
     if (cached is not None and int(cached.get("rounds", -1)) == cfg.rounds
-            and bool(cached.get("single_sector", False)) == cfg.mw_single_sector):
+            and bool(cached.get("single_sector", False)) == cfg.mw_single_sector
+            and cached.get("search_rounds", None) == cfg.mw_search_rounds):
         print(f"\nTechnique II — reusing cached distance.json (D={cached['distance']}, "
               f"w0={cached['onset']})", flush=True)
         return cached
 
     sector = cfg.mw_sector_type if cfg.mw_single_sector else None
     mode = f"single-sector (type {sector})" if cfg.mw_single_sector else "full both-sector"
-    print(f"\nTechnique II — min-weight onset, {mode} DEM (BP-OSD; prints progress) ...", flush=True)
-    circuit = build_circuit(cfg)
+    restrict = f", faults restricted to {cfg.mw_search_rounds} QEC cycles" if cfg.mw_search_rounds else ""
+    print(f"\nTechnique II — min-weight onset, {mode} DEM{restrict} "
+          f"(BP-OSD{'+decimation' if cfg.mw_decimate else ''}; prints progress) ...", flush=True)
+    circuit = _technique_ii_circuit(cfg)
 
     det_coords = None
     if cfg.mw_single_sector:
@@ -483,7 +504,7 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
         circuit, D, max_trials=cfg.mw_max_trials, osd_order=cfg.mw_osd_order, max_iter=cfg.mw_max_iter,
         priors=priors, seed=cfg.seed, progress_every=max(max(n_sys, cfg.mw_max_trials) // 40, 1),
         workers=cfg.mw_workers, systematic=cfg.mw_systematic, symmetry_perms=sym_perms, sector=sector,
-        return_trace=True)
+        decimate=cfg.mw_decimate, decimate_max_odd=cfg.mw_decimate_max_odd, return_trace=True)
     ld_comp = len(logicals)
     _atomic_write_json(outdir / "search_convergence.json", {
         "trace": [[int(t), int(c)] for (t, c) in search_trace], "n_systematic": int(n_sys),
@@ -505,7 +526,8 @@ def run_technique_ii(cfg: Config, outdir: pathlib.Path) -> dict:
         why = "no weight-D logicals found" if not logicals else f"D={D} odd (Prop.1 is even-D only)"
         print(f"  [II.3] {why} -> onset fraction unpinned (f0=None)", flush=True)
 
-    out = {"rounds": cfg.rounds, "single_sector": bool(cfg.mw_single_sector),
+    out = {"rounds": cfg.rounds, "search_rounds": cfg.mw_search_rounds,
+           "single_sector": bool(cfg.mw_single_sector),
            "sector_type": int(cfg.mw_sector_type) if cfg.mw_single_sector else None, "method": "search",
            "distance": int(D), "distance_is_bound": True, "onset": int(half), "n_compressed": int(n_comp),
            "n_expanded": int(n_exp), "n_min_logicals": int(ld_comp), "n_min_logicals_expanded": int(ld_exp),

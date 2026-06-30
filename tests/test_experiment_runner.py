@@ -48,6 +48,24 @@ def test_bb288_construction():
     assert cfg.rounds == 18
 
 
+def test_bb288_technique_ii_augmentations():
+    """bb288 enables the paper's §4.2 search accelerations (decimation + 2-cycle fault restriction)."""
+    cfg = er.load_config(CONFIGS / "bb288_memory.yaml")
+    assert cfg.mw_decimate is True
+    assert cfg.mw_search_rounds == 2
+
+
+def test_fault_restriction_shrinks_technique_ii_circuit():
+    """mw_search_rounds builds a smaller Technique-II circuit (fewer QEC cycles -> fewer detectors),
+    while the rest of the run still uses cfg.rounds."""
+    full = er.Config.smoke(code_name="bb144", experiment="memory")
+    restricted = er.Config.smoke(code_name="bb144", experiment="memory", mw_search_rounds=2)
+    c_full = er._technique_ii_circuit(full)
+    c_restr = er._technique_ii_circuit(restricted)
+    assert c_restr.num_detectors < c_full.num_detectors
+    assert restricted.rounds == full.code.distance      # the experiment rounds are untouched
+
+
 def test_weights_range_expands():
     cfg = er.load_config(CONFIGS / "bb6_memory.yaml")
     assert cfg.weights == list(range(2, 61))

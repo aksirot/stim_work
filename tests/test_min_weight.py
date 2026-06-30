@@ -9,7 +9,24 @@ import numpy as np
 import pytest
 
 from surface_code_sim import SurfaceCodeSimulator, ErrorModel
-from min_weight import compute_distance, min_weight_fail_count
+from min_weight import (compute_distance, min_weight_fail_count, find_min_weight_logicals,
+                        dem_check_action_matrices)
+
+
+def test_decimation_finds_valid_min_weight_logicals():
+    """Decimation (paper §4.2) must return VALID weight-D logicals (H@x=0, A@x!=0, |x|=D)."""
+    circ = SurfaceCodeSimulator(distance=3).build_circuit(ErrorModel.symmetric(0.02), rounds=2)
+    H, A, mult, probs = dem_check_action_matrices(circ)
+    N = H.shape[1]
+    D = compute_distance(matrices=(H, A, probs)).distance
+    res = find_min_weight_logicals(matrices=(H, A, probs), D=D, max_trials=150,
+                                   systematic=False, decimate=True, workers=1, seed=0)
+    assert len(res) >= 1, "decimation found no weight-D logicals"
+    for s in res:
+        v = np.zeros(N, dtype=np.uint8); v[list(s)] = 1
+        assert len(s) == D
+        assert not (H @ v % 2).any()    # respects all stabilizer checks
+        assert (A @ v % 2).any()        # nontrivial logical action
 
 
 # --- brute-force references (tiny codes only) -------------------------------
