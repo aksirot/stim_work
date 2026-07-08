@@ -536,15 +536,18 @@ for m in MODELS:
     axL.plot(p_grid, eps72[m], "--", color=col, lw=1.5)
     mp = sorted(mc72[m])
     axL.plot(mp, [per_round(np.asarray([mc72[m][p][0]]), ROUNDS72)[0] for p in mp], "^", color=col, ms=6)
-    axR.plot(p_grid, eps18[m] / eps72[m], "-", color=col, lw=2, label=m)
+    axR.plot(p_grid, np.sqrt(eps18[m] / eps72[m]), "-", color=col, lw=2, label=m)
 axL.set_xscale("log"); axL.set_yscale("log")
 axL.set_xlabel("physical error rate p"); axL.set_ylabel("per-round logical error rate ε")
 axL.set_title("[[18,4,4]] (solid, 2 rounds) vs [[72,4,8]] (dashed, 4 rounds; ▲=MC)")
 axL.legend(fontsize=8); axL.grid(alpha=0.3, which="both")
 axR.set_xscale("log"); axR.set_yscale("log")
 axR.axhline(1.0, color="gray", lw=1); axR.axvline(P_LAM, color="gray", ls=":", lw=1)
-axR.set_xlabel("physical error rate p"); axR.set_ylabel(r"$\\Lambda(p) = \\varepsilon_{18}/\\varepsilon_{72}$")
-axR.set_title("error suppression per channel (crossings = true $p_{th,i}$)")
+# √Λ = per-(+2-distance)-step suppression (d: 4→8 is two steps) — directly comparable to the
+# per-step λ Google quotes for the surface-code ladder (Willow: λ ≈ 2.14). λ=1 crossings = p_th.
+axR.set_xlabel("physical error rate p")
+axR.set_ylabel(r"$\\lambda(p) = \\sqrt{\\varepsilon_{18}/\\varepsilon_{72}}$  (per +2-distance step)")
+axR.set_title("per-step error suppression (crossings at $\\lambda=1$ = true $p_{th,i}$)")
 axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
 plt.tight_layout(); plt.show()''')
 
