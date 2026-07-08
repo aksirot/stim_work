@@ -238,10 +238,18 @@ honesty notes for a **single** code:
   mixed fault is killed by removing *any* of its participant channels, so it is counted in each).
   SPAM = meas + prep (their linear budget terms add).""")
 
-code('''P_STAR = 0.005                       # budget operating point (MC-anchored)
+code('''# Budget operating point: DEEP in the suppression regime — below every channel's pseudo-threshold
+# (the lowest, CZ, is ~1.5e-3, so 5e-4 sits ~3x under it and 12-25x under the rest). Direct MC is
+# impractical down here (LERs ~1e-4..1e-6), so the cross-check column is Technique III SPLITTING
+# (§3 reaches p=1e-4) instead of MC; §4 already validated ansatz-vs-MC at moderate p.
+P_STAR = 5e-4
 
 def ansatz_at(d, p):                 # evaluate a stored f5 fit at scalar p
     return float(np.asarray(logical_error_rate_from_ansatz(d["fit"], [p]))[0])
+
+def split_at(name, p):               # Technique-III splitting estimate at p (log-log interpolated)
+    sp, sP = tech3[name]["sp"], tech3[name]["sP"]
+    return float(np.exp(np.interp(np.log(p), np.log(sp), np.log(sP))))
 
 def crossing_p(pg, y1, y2):          # p where y1(p)=y2(p), log-log interpolated (None if never)
     r = np.log(y1) - np.log(y2)
@@ -258,27 +266,32 @@ CHANNELS = ["CZ only", "meas only", "prep only", "idle only"]
 ABL_OF = {"CZ only": "no CZ", "meas only": "no meas", "prep only": "no prep", "idle only": "no idle"}
 
 L_full = ansatz_at(tech1["full symmetric"], P_STAR)
-mc_full = mc["full symmetric"][P_STAR][0]
+S_full = split_at("full symmetric", P_STAR)
 rows = []
 for ch in CHANNELS:
     iso = ansatz_at(tech1[ch], P_STAR) / L_full
-    marg = 1.0 - ansatz_at(tech1_abl[ABL_OF[ch]], P_STAR) / L_full
-    marg_mc = 1.0 - mc_abl[ABL_OF[ch]][P_STAR][0] / mc_full
+    marg = 1.0 - ansatz_at(tech1_abl[ABL_OF[ch]], P_STAR) / L_full   # ansatz-only: no MC down here
+    iso_split = split_at(ch, P_STAR) / S_full
     pth = pseudo_threshold(p_grid, tech1[ch]["LER"])
-    rows.append((ch, iso, marg, marg_mc, pth))
+    rows.append((ch, iso, marg, iso_split, pth))
 
-print(f"error budget at p* = {P_STAR}   (LER_full: ansatz {L_full:.3e}, MC {mc_full:.3e})")
-print(f"{'channel':12s} {'isolated':>9} {'marginal':>9} {'marg(MC)':>9} {'p_pth':>9} {'p*/p_pth':>9}")
-for ch, iso, marg, marg_mc, pth in rows:
+print(f"error budget at p* = {P_STAR}   (LER_full: ansatz {L_full:.3e}, splitting {S_full:.3e})")
+print(f"{'channel':12s} {'isolated':>9} {'iso(split)':>10} {'marginal':>9} {'p_pth':>9} {'p*/p_pth':>9}")
+for ch, iso, marg, iso_split, pth in rows:
     pths = f"{pth:.4f}" if pth else ">grid"
     term = f"{P_STAR/pth:.3f}" if pth else "-"
-    print(f"{ch:12s} {iso:9.3f} {marg:9.3f} {marg_mc:9.3f} {pths:>9} {term:>9}")
+    print(f"{ch:12s} {iso:9.3f} {iso_split:10.3f} {marg:9.3f} {pths:>9} {term:>9}")
 mixing = 1.0 - sum(r[1] for r in rows)
 spam_iso = sum(r[1] for r in rows if r[0] in ("meas only", "prep only"))
 spam_marg = sum(r[2] for r in rows if r[0] in ("meas only", "prep only"))
-print(f"{'mixing':12s} {mixing:9.3f}           (1 - sum isolated: cross-channel faults)")
-print(f"{'SPAM':12s} {spam_iso:9.3f} {spam_marg:9.3f}           (meas + prep combined)")
-print(f"sum(marginal) = {sum(r[2] for r in rows):.3f}  (>1 <=> shared mixed faults; Google renormalizes)")''')
+print(f"{'mixing':12s} {mixing:9.3f}                      (1 - sum isolated: cross-channel faults)")
+print(f"{'SPAM':12s} {spam_iso:9.3f} {'':10s} {spam_marg:9.3f}      (meas + prep combined)")
+print(f"sum(marginal) = {sum(r[2] for r in rows):.3f}  (>1 <=> shared mixed faults; Google renormalizes)")
+print(f"Willow-form sum: {sum(P_STAR / r[4] for r in rows if r[4]):.3f} = "
+      + " + ".join(f"{P_STAR/r[4]:.3f} ({r[0].split()[0]})" for r in rows if r[4])
+      + ("   [all terms < 1: genuinely sub-threshold]"
+         if all(P_STAR / r[4] < 1 for r in rows if r[4])
+         else "   [WARNING: a term >= 1 — p* is not below every pseudo-threshold]"))''')
 
 code('''fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.5))
 # left: marginal budget fractions vs p (from the ansatz curves)
@@ -353,7 +366,10 @@ code('''def per_round(LER, rounds):
 eps18 = {m: per_round(tech1[m]["LER"], ROUNDS) for m in MODELS}
 eps72 = {m: per_round(tech1_72[m]["LER"], ROUNDS72) for m in MODELS}
 
-P_LAM = 0.003                            # evaluate Λ below the crossings, near the MC anchors
+# Λ evaluation point — matches the §6 budget's p*, deep in the suppression regime (well below every
+# crossing). Caveat: ε72 down here is a genuine ansatz extrapolation (its MC anchors sit at 4e-3/8e-3);
+# read Λ(P_LAM) together with the Λ(p) panel, which shows how Λ grows as p drops.
+P_LAM = 5e-4
 i_lam = int(np.argmin(np.abs(p_grid - P_LAM)))
 rows7 = []
 print(f"{'channel':16s} {'p_th (ε18=ε72)':>15} {'Λ(p*)':>9} {'p*/p_th':>9}     (p* = {P_LAM})")
