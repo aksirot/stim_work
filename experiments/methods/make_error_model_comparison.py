@@ -79,6 +79,16 @@ P_REF, ROUNDS = 0.01, 2
 # error bars) is the iteration default; set 1.0 for full-fidelity anchors and the §4 overlay.
 MC_SCALE = 0.15
 
+# The ONE decoder used by every sampling cell in this notebook. Paper-style Relay legs at
+# num_sets=5: measured strictly better AND faster than the speed-tuned RelayBPDecoder default,
+# which misconverges on ~1% of weight-2 gate_idle syndromes on [[72,4,8]] — BELOW the
+# perfect-decoder onset — inflating ε72 at low p and faking Λ<1 for that channel. More legs
+# tighten mid-weight f(w) further (f(20): 0.15→0.07 at num_sets=20, ~3× cost; 600 = paper
+# production, ~18×). Λ compares the two codes, so both MUST use the same decoder: change it HERE.
+def DEC():
+    return RelayBPDecoder(gamma0=0.125, pre_iter=80, num_sets=5, set_max_iter=60,
+                          gamma_dist_interval=(-0.24, 0.66), stop_nconv=3)
+
 # Channels are isolated by position-filtering ONE symmetric(p) circuit at the same base rate p.
 # bb_code_sim.filter_noise_channel owns the position predicates (X_ERROR after R = prep, before
 # M = meas; DEPOLARIZE1 not post-H = idle; DEPOLARIZE2 = two-qubit gate) — they encode the layout
@@ -218,7 +228,7 @@ tech1 = {}
 for name in MODELS:
     c = make_circuit(name, P_REF)
     W = weight_window(c)
-    spec = importance_sample_adaptive(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
+    spec = importance_sample_adaptive(c, DEC(), p_ref=P_REF, p_values=[P_REF],
                                       weights=W, target_failures=200,
                                       shots_max=30_000, seed=1).spectrum
     fw = dict(zip(spec.weights, np.asarray(spec.failures) / np.asarray(spec.trials)))
@@ -237,7 +247,7 @@ code('''tech3 = {}
 for name in MODELS:
     c = make_circuit(name, P_REF); info = tech2[name]
     temper, diag = replica_exchange_estimate(
-        c, RelayBPDecoder(), p_ref=P_REF, p_high=0.015, p_low=1e-4, n_levels=16,
+        c, DEC(), p_ref=P_REF, p_high=0.015, p_low=1e-4, n_levels=16,
         n_walkers=8, local_steps=5, n_sweeps=80, burn_in=20, anchor_shots=4000,
         distance=info["D"], seed=2, single_sector=False, mw_supports=list(info["LD"]), verbose=False)
     sp = np.asarray(temper.p_ladder)[::-1]; sP = np.asarray(temper.P_logical)[::-1]
@@ -252,7 +262,7 @@ Direct-MC ground truth at moderate `p`, overlaid with all three techniques for t
 model the ansatz line, the splitting squares, and the MC circles should coincide where they overlap.""")
 
 code('''def direct_mc(circ, shots):
-    d = RelayBPDecoder(); d.setup(circ)
+    d = DEC(); d.setup(circ)
     det, obs = circ.compile_detector_sampler().sample(shots, separate_observables=True)
     f = np.any(d.decode_batch(det) != obs, axis=1); m = f.mean()
     return m, (max(m, 1e-9) * (1 - m) / shots) ** 0.5
@@ -316,7 +326,7 @@ for name in ABLATED:
 code('''tech1_abl, mc_abl = {}, {}
 for name in ABLATED:
     c = make_ablated_circuit(name, P_REF)
-    spec = importance_sample_adaptive(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
+    spec = importance_sample_adaptive(c, DEC(), p_ref=P_REF, p_values=[P_REF],
                                       weights=weight_window(c), target_failures=200,
                                       shots_max=30_000, seed=3).spectrum
     fit = fit_failure_spectrum(spec, K=c.num_observables, model="f5", w0=None, f0=None)
@@ -480,7 +490,7 @@ for name in MODELS:
     # cannot be resolved at this budget anyway (they need ~1e6+ shots) — three consecutive empty
     # max-budget bins end the descent. Zero/skipped bins contribute exactly 0 to the reweighting
     # either way, so ε72 at very low p is a LOWER bound (Λ an upper bound) — compare Λ vs Λ(fit).
-    spec = importance_sample_adaptive(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
+    spec = importance_sample_adaptive(c, DEC(), p_ref=P_REF, p_values=[P_REF],
                                       weights=W, target_failures=100, shots_max=10_000,
                                       stop_after_zero_bins=3, seed=4).spectrum
     fit = fit_failure_spectrum(spec, K=c.num_observables, model="f5", w0=None, f0=None)
@@ -570,7 +580,7 @@ for name in ABLATED:
     mu_ref = sum(e.args_copy()[0] for e in c.detector_error_model().flattened() if e.type == "error")
     w_hi = int(np.ceil((mu := mu_ref * p_grid.max() / P_REF) + 4 * np.sqrt(mu)))
     W = list(range(1, 16)) + list(range(16, w_hi + 1, 2))
-    spec = importance_sample_adaptive(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
+    spec = importance_sample_adaptive(c, DEC(), p_ref=P_REF, p_values=[P_REF],
                                       weights=W, target_failures=100, shots_max=10_000,
                                       stop_after_zero_bins=3, seed=5).spectrum
     tech1_72_abl[name] = dict(spec=spec)
