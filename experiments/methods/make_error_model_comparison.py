@@ -244,8 +244,15 @@ code('''# Budget operating point: DEEP in the suppression regime — below every
 # (§3 reaches p=1e-4) instead of MC; §4 already validated ansatz-vs-MC at moderate p.
 P_STAR = 5e-4
 
-def ansatz_at(d, p):                 # evaluate a stored f5 fit at scalar p
-    return float(np.asarray(logical_error_rate_from_ansatz(d["fit"], [p]))[0])
+# Point values at p* come from the MEASURED spectra, binomially reweighted — NOT from the f5
+# fits. The sampled weights (1..10) cover every model's onset (w0=2, f(1)=0), so the reweighting
+# is exact-in-expectation at low p; independently-fitted (w0, f0, shape) EXTRAPOLATIONS drift
+# apart model-to-model down here and can even invert the full-vs-ablated ordering (negative
+# "marginals"). The fits still supply the curve-wide pseudo-thresholds, where they are anchored.
+from importance_sampling import reweight_spectrum
+
+def ler_at(d, p):                    # reweighted measured spectrum at scalar p (no extrapolation)
+    return float(reweight_spectrum(d["spec"], [p]).P_logical[0])
 
 def split_at(name, p):               # Technique-III splitting estimate at p (log-log interpolated)
     sp, sP = tech3[name]["sp"], tech3[name]["sP"]
@@ -265,17 +272,17 @@ def pseudo_threshold(pg, LER):       # break-even LER(p)=p (single-code threshol
 CHANNELS = ["CZ only", "meas only", "prep only", "idle only"]
 ABL_OF = {"CZ only": "no CZ", "meas only": "no meas", "prep only": "no prep", "idle only": "no idle"}
 
-L_full = ansatz_at(tech1["full symmetric"], P_STAR)
+L_full = ler_at(tech1["full symmetric"], P_STAR)
 S_full = split_at("full symmetric", P_STAR)
 rows = []
 for ch in CHANNELS:
-    iso = ansatz_at(tech1[ch], P_STAR) / L_full
-    marg = 1.0 - ansatz_at(tech1_abl[ABL_OF[ch]], P_STAR) / L_full   # ansatz-only: no MC down here
+    iso = ler_at(tech1[ch], P_STAR) / L_full
+    marg = 1.0 - ler_at(tech1_abl[ABL_OF[ch]], P_STAR) / L_full   # reweighted spectra: no fit drift
     iso_split = split_at(ch, P_STAR) / S_full
     pth = pseudo_threshold(p_grid, tech1[ch]["LER"])
     rows.append((ch, iso, marg, iso_split, pth))
 
-print(f"error budget at p* = {P_STAR}   (LER_full: ansatz {L_full:.3e}, splitting {S_full:.3e})")
+print(f"error budget at p* = {P_STAR}   (LER_full: reweighted {L_full:.3e}, splitting {S_full:.3e})")
 print(f"{'channel':12s} {'isolated':>9} {'iso(split)':>10} {'marginal':>9} {'p_pth':>9} {'p*/p_pth':>9}")
 for ch, iso, marg, iso_split, pth in rows:
     pths = f"{pth:.4f}" if pth else ">grid"
@@ -355,7 +362,8 @@ for name in MODELS:
     spec = importance_sample(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
                              weights=W, shots_per_weight=3000, seed=4).spectrum
     fit = fit_failure_spectrum(spec, K=c.num_observables, model="f5", w0=None, f0=None)
-    tech1_72[name] = dict(fit=fit, LER=np.asarray(logical_error_rate_from_ansatz(fit, list(p_grid))))
+    tech1_72[name] = dict(spec=spec, fit=fit,
+                          LER=np.asarray(logical_error_rate_from_ansatz(fit, list(p_grid))))
     mc72[name] = {p: direct_mc(make_circuit72(name, p), s) for p, s in mc72_pts.items()}
     print(f"{name:16s}: weights 1..{w_hi} ({len(W)} sampled), f5 cost={fit.cost:.2f}, "
           f"MC LER(0.008)={mc72[name][0.008][0]:.3e}", flush=True)''')
@@ -367,19 +375,27 @@ eps18 = {m: per_round(tech1[m]["LER"], ROUNDS) for m in MODELS}
 eps72 = {m: per_round(tech1_72[m]["LER"], ROUNDS72) for m in MODELS}
 
 # Λ evaluation point — matches the §6 budget's p*, deep in the suppression regime (well below every
-# crossing). Caveat: ε72 down here is a genuine ansatz extrapolation (its MC anchors sit at 4e-3/8e-3);
-# read Λ(P_LAM) together with the Λ(p) panel, which shows how Λ grows as p drops.
+# crossing). Point-Λ uses the REWEIGHTED measured spectra (both codes sampled from w=1 through their
+# onsets), avoiding cross-fit extrapolation drift; the f5-based value is printed as a cross-check.
+# Honesty note: if the [[72,4,8]] onset bins saw ZERO failures at these shots, the reweighted ε72 is
+# a lower bound → Λ an upper bound (a large reweighted-vs-fit gap flags exactly this).
 P_LAM = 5e-4
+from importance_sampling import reweight_spectrum
+
+def eps_at(d, p, rounds):            # per-round ε from the reweighted measured spectrum
+    return float(per_round(reweight_spectrum(d["spec"], [p]).P_logical, rounds)[0])
+
 i_lam = int(np.argmin(np.abs(p_grid - P_LAM)))
 rows7 = []
-print(f"{'channel':16s} {'p_th (ε18=ε72)':>15} {'Λ(p*)':>9} {'p*/p_th':>9}     (p* = {P_LAM})")
+print(f"{'channel':16s} {'p_th (ε18=ε72)':>15} {'Λ(p*)':>9} {'Λ(fit)':>9} {'p*/p_th':>9}     (p* = {P_LAM})")
 for m in MODELS:
     pth = crossing_p(p_grid, eps18[m], eps72[m])
-    lam = float(eps18[m][i_lam] / eps72[m][i_lam])
+    lam = eps_at(tech1[m], P_LAM, ROUNDS) / eps_at(tech1_72[m], P_LAM, ROUNDS72)
+    lam_fit = float(eps18[m][i_lam] / eps72[m][i_lam])
     rows7.append((m, pth, lam))
     pths = f"{pth:.4f}" if pth else ">grid"
     term = f"{P_LAM/pth:.3f}" if pth else "-"
-    print(f"{m:16s} {pths:>15} {lam:9.3g} {term:>9}")
+    print(f"{m:16s} {pths:>15} {lam:9.3g} {lam_fit:9.3g} {term:>9}")
 
 lam_full = dict((m, l) for m, _, l in rows7)["full symmetric"]
 print(f"\\nΛ_full(p*) = {lam_full:.3g}  →  per-(+2-distance)-step λ = √Λ = {np.sqrt(lam_full):.3g}  (d: 4→8 is two steps)")

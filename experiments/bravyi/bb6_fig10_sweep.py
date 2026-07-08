@@ -94,6 +94,7 @@ from importance_sampling import (  # noqa: E402
     fit_failure_spectrum,
     logical_error_rate_from_ansatz,
     predict_failure_fraction,
+    reweight_spectrum,
     shots_to_hit_failures,
 )
 from repo_paths import RUNS  # noqa: E402
@@ -309,30 +310,6 @@ def _load_json(path: pathlib.Path) -> Optional[dict]:
         return None
     with open(path) as fh:
         return json.load(fh)
-
-
-# ================================ reweighting =====================================
-def reweight_spectrum(spectrum: FailureSpectrum, p_values: np.ndarray) -> ImportanceSamplingResult:
-    """LER(p) from an accumulated failure spectrum (mirrors importance_sample's reweighting)."""
-    N_exp = spectrum.n_expanded
-    p_arr = np.asarray(p_values, dtype=float)
-    q_targets = np.clip(spectrum.q_base * (p_arr / spectrum.p_ref), 1e-300, 1.0 - 1e-15)
-    log_q = np.log(q_targets)
-    log_1mq = np.log(1.0 - q_targets)
-
-    P_logical = np.zeros_like(p_arr)
-    var = np.zeros_like(p_arr)
-    for w, T, F in zip(spectrum.weights, spectrum.trials, spectrum.failures):
-        f = F / T if T > 0 else 0.0
-        f_se = np.sqrt(f * (1.0 - f) / T) if T > 0 else 0.0
-        log_binom = gammaln(N_exp + 1) - gammaln(w + 1) - gammaln(N_exp - w + 1)
-        weight = np.exp(log_binom + w * log_q + (N_exp - w) * log_1mq)
-        P_logical += f * weight
-        var += (f_se * weight) ** 2
-
-    return ImportanceSamplingResult(
-        p_values=p_arr, P_logical=P_logical, P_logical_se=np.sqrt(var), spectrum=spectrum,
-    )
 
 
 def _shots_for(cfg: "Config", w: int) -> int:

@@ -338,6 +338,38 @@ class AnsatzFit:
         return failure_spectrum_ansatz(w, a=self.a, model=self.model, **self.params)
 
 
+def reweight_spectrum(spectrum: FailureSpectrum, p_values) -> ImportanceSamplingResult:
+    """LER(p) by binomially reweighting a MEASURED failure spectrum — no ansatz, no extrapolation.
+
+    LER(p) = Σ_w Binom(w; N_expanded, q(p)) · f̂(w) over the sampled weights. Unbiased at any p
+    where the sampled weight range covers the support of both f(w)>0 and the binomial mass —
+    in particular at LOW p whenever the spectrum was sampled down through the onset (then the
+    truncation above the top sampled weight is negligible). Prefer this over evaluating an
+    ansatz fit when comparing models at low p: fitted-(w0, f0, shape) differences between
+    independently fitted models amplify exponentially under extrapolation, which can even
+    invert physical orderings (e.g. an ablated circuit's fit crossing above the full model's).
+    """
+    N_exp = spectrum.n_expanded
+    p_arr = np.asarray(p_values, dtype=float)
+    q_targets = np.clip(spectrum.q_base * (p_arr / spectrum.p_ref), 1e-300, 1.0 - 1e-15)
+    log_q = np.log(q_targets)
+    log_1mq = np.log(1.0 - q_targets)
+
+    P_logical = np.zeros_like(p_arr)
+    var = np.zeros_like(p_arr)
+    for w, T, F in zip(spectrum.weights, spectrum.trials, spectrum.failures):
+        f = F / T if T > 0 else 0.0
+        f_se = np.sqrt(f * (1.0 - f) / T) if T > 0 else 0.0
+        log_binom = gammaln(N_exp + 1) - gammaln(w + 1) - gammaln(N_exp - w + 1)
+        weight = np.exp(log_binom + w * log_q + (N_exp - w) * log_1mq)
+        P_logical += f * weight
+        var += (f_se * weight) ** 2
+
+    return ImportanceSamplingResult(
+        p_values=p_arr, P_logical=P_logical, P_logical_se=np.sqrt(var), spectrum=spectrum,
+    )
+
+
 def fit_failure_spectrum(
     spectrum: FailureSpectrum,
     K: int,
