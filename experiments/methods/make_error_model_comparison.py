@@ -527,6 +527,47 @@ axR.set_title("error suppression per channel (crossings = true $p_{th,i}$)")
 axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
 plt.tight_layout(); plt.show()''')
 
+# ===========================================================================
+md(r"""## §7.5 — Marginal Λ: the ablations on the larger code
+
+§7.3's Λᵢ used channel-*isolated* circuits — the clean per-channel suppression capability, but not
+a decomposition of Λ_full (the mixed-channel faults belong to no isolated circuit). Google's
+budget convention is *marginal*: ablate one component from the FULL circuit and measure the
+change. Here we run the five leave-one-out circuits on **[[72,4,8]]** (the 18-code ablations are
+§5's), form `Λ_no-i(p*) = ε₁₈,no-i/ε₇₂,no-i`, and read channel i's contribution to the full
+suppression deficit as `1/Λ_full − 1/Λ_no-i`. The gap between Σ(contributions) and `1/Λ_full` is
+the Λ-space mixing — the same story §6 tells in LER-space, now for error suppression.""")
+
+code('''tech1_72_abl = {}
+for name in ABLATED:
+    drop = NOISE_CHANNEL_PREDICATES[ABLATED[name]]
+    c = filter_noise_channel(BBCodeSimulator(BB_72_4_8).build_circuit(ErrorModel.symmetric(P_REF), rounds=ROUNDS72),
+                             lambda i, pr, nx: not drop(i, pr, nx))
+    mu_ref = sum(e.args_copy()[0] for e in c.detector_error_model().flattened() if e.type == "error")
+    w_hi = int(np.ceil((mu := mu_ref * p_grid.max() / P_REF) + 4 * np.sqrt(mu)))
+    W = list(range(1, 16)) + list(range(16, w_hi + 1, 2))
+    spec = importance_sample_adaptive(c, RelayBPDecoder(), p_ref=P_REF, p_values=[P_REF],
+                                      weights=W, target_failures=100, shots_max=10_000,
+                                      stop_after_zero_bins=3, seed=5).spectrum
+    tech1_72_abl[name] = dict(spec=spec)
+    print(f"{name:13s}: sampled {len(spec.weights)}/{len(W)} bins, {sum(spec.trials)} shots", flush=True)''')
+
+code('''inv_full = 1.0 / lam_full
+print(f"marginal Λ decomposition at p* = {P_LAM}   (Λ_full = {lam_full:.3g}, 1/Λ_full = {inv_full:.3e})")
+print(f"{'channel':12s} {'Λ_no-i(p*)':>11} {'1/Λ_no-i':>10} {'contribution':>13} {'share':>7}")
+contribs = {}
+for ch in CHANNELS:
+    abl = ABL_OF[ch]
+    lam_no = eps_at(tech1_abl[abl], P_LAM, ROUNDS) / eps_at(tech1_72_abl[abl], P_LAM, ROUNDS72)
+    contribs[ch] = inv_full - 1.0 / lam_no          # how much of the suppression deficit channel i owns
+    print(f"{ch:12s} {lam_no:11.3g} {1.0/lam_no:10.3e} {contribs[ch]:13.3e} {contribs[ch]/inv_full:7.2f}")
+tot = sum(contribs.values())
+print(f"\\nsum of marginal contributions = {tot:.3e}  vs  1/Λ_full = {inv_full:.3e}"
+      f"   (ratio {tot/inv_full:.2f})")
+print("ratio > 1: shared mixed faults counted once per participant (as in §6's Σ marginal > 1);")
+print("a NEGATIVE contribution means removing that channel HURT the suppression ratio — e.g. a")
+print("channel whose faults the big code handles better than the small one.")''')
+
 # ---------------------------------------------------------------------------
 md(r"""## Takeaways
 
