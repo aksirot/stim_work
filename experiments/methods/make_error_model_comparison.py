@@ -301,13 +301,20 @@ print(f"Willow-form sum: {sum(P_STAR / r[4] for r in rows if r[4]):.3f} = "
          else "   [WARNING: a term >= 1 — p* is not below every pseudo-threshold]"))''')
 
 code('''fig, (axL, axR) = plt.subplots(1, 2, figsize=(12, 4.5))
-# left: marginal budget fractions vs p (from the ansatz curves)
-Lf = tech1["full symmetric"]["LER"]
+# left: marginal budget fractions vs p — REWEIGHTED measured spectra (solid), the same estimator
+# as the table/bars at p*, so the panels agree. The f5-fit version is kept as faint dashed lines
+# (unclipped) to make the low-p extrapolation drift visible instead of hiding it. At the very top
+# of the grid the reweighted curves truncate slightly (binomial mass above the sampled weights).
+Lf_rw = reweight_spectrum(tech1["full symmetric"]["spec"], p_grid).P_logical
+Lf_fit = tech1["full symmetric"]["LER"]
 for ch in CHANNELS:
-    frac = 1.0 - tech1_abl[ABL_OF[ch]]["LER"] / Lf
-    axL.plot(p_grid, np.clip(frac, 0, None), "-", color=COLORS[ch], lw=2, label=ch)
+    frac_rw = 1.0 - reweight_spectrum(tech1_abl[ABL_OF[ch]]["spec"], p_grid).P_logical / Lf_rw
+    axL.plot(p_grid, frac_rw, "-", color=COLORS[ch], lw=2, label=ch)
+    axL.plot(p_grid, 1.0 - tech1_abl[ABL_OF[ch]]["LER"] / Lf_fit, "--", color=COLORS[ch], lw=1, alpha=0.4)
+axL.plot([], [], "--", color="gray", lw=1, alpha=0.6, label="f5-fit version (drifts at low p)")
+axL.axhline(0.0, color="gray", lw=0.8)
 axL.set_xscale("log"); axL.set_xlabel("physical error rate p")
-axL.set_ylabel("marginal budget fraction  1 − LER$_{no\\,i}$/LER$_{full}$")
+axL.set_ylabel("marginal fraction  1 − LER$_{no\\,i}$/LER$_{full}$")
 axL.axvline(P_STAR, color="gray", ls=":", lw=1); axL.legend(fontsize=8); axL.grid(alpha=0.3)
 # right: the budget bar chart at p*
 labels = [r[0] for r in rows] + ["mixing"]
