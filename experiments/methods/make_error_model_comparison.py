@@ -113,8 +113,9 @@ noise-channel predicates key on. Inline `·channel` tags show how each noise ins
 classified (`cz` / `meas` / `prep` / `gate_idle` / `meas_idle`): each data qubit is busy in six
 of the seven CX layers, idles through the one it sits out (`·gate_idle`), and idles again while
 the ancillas are measured and reset (`·meas_idle`). The second cell renders the NOISY one-cycle
-schedule as a stim `timeline-svg` diagram, sliced to the watched qubits (+ their CX partners as
-context lines, ~16 of 36 qubit rails) so the labelled noise boxes are actually readable.""")
+schedule as a stim `timeline-svg` diagram, sliced to a closed 7-qubit star — one data qubit plus
+its six check ancillas, gates kept only when both endpoints are inside — so every rail shown is
+fully involved and the labelled noise boxes are readable.""")
 
 code('''watch = {0: "data q0 (L)", 9: "data q9 (R)", 18: "X-anc q18", 27: "Z-anc q27"}
 c = make_circuit("full symmetric", P_REF)
@@ -149,12 +150,22 @@ for L in range(n_show):
     row = [" ".join(s for l, s in timeline[q] if l == L) or "—" for q in watch]
     print(f"{L:>5} | " + " | ".join(f"{r:^24}" for r in row))''')
 
-code('''# A watchable SLICE of the NOISY circuit instead of all 36 qubits: keep only instructions
-# touching `watch` (CX / DEPOLARIZE2 kept per-pair when either endpoint is watched, so the CX
-# partners appear as context lines); detectors/observables are dropped since their
-# measurement-record indices don't survive the cut. The labelled noise boxes (DEP1/DEP2 = cz,
-# gate_idle, meas_idle; ERR = prep/meas X_ERROR) sit exactly where the table's ·channel tags are.
+code('''# A closed SLICE of the NOISY circuit: ONE data qubit + its six check ancillas (3 X + 3 Z),
+# keeping only instructions whose endpoints are ALL inside the slice — so no half-empty
+# "context" rails. Caveat: the ancilla rails show only their coupling to the watched data qubit
+# (their other five CXs are cropped). The labelled noise boxes (DEP1 = gate/meas idle + post-H
+# 1q-gate noise, DEP2 = cz, ERR = prep/meas X_ERROR) sit exactly where the table's ·channel
+# tags put them.
 noisy = BBCodeSimulator(P).build_circuit(ErrorModel.symmetric(P_REF), rounds=1)
+DATA_Q = 0
+star = {DATA_Q}
+for inst in noisy.flattened():
+    if inst.name == "CX":
+        t = [x.value for x in inst.targets_copy()]
+        for a, b in zip(t[::2], t[1::2]):
+            if DATA_Q in (a, b):
+                star |= {a, b}
+print(f"slice: data q{DATA_Q} + its checks {sorted(star - {DATA_Q})}")
 sl = stim.Circuit()
 for inst in noisy.flattened():
     nm = inst.name
@@ -166,11 +177,11 @@ for inst in noisy.flattened():
     t = [x.value for x in inst.targets_copy()]
     args = inst.gate_args_copy()
     if nm in ("CX", "DEPOLARIZE2"):
-        pairs = [(a, b) for a, b in zip(t[::2], t[1::2]) if a in watch or b in watch]
+        pairs = [(a, b) for a, b in zip(t[::2], t[1::2]) if a in star and b in star]
         if pairs:
             sl.append(nm, [q for ab in pairs for q in ab], args)
     else:
-        keep = [q for q in t if q in watch]
+        keep = [q for q in t if q in star]
         if keep:
             sl.append(nm, keep, args)
 sl.diagram("timeline-svg")''')
