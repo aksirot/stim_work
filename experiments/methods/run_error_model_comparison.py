@@ -313,7 +313,9 @@ def schedule_svg_body():
     import stim
     # A closed SLICE of the NOISY circuit: ONE data qubit + its six check ancillas, keeping only
     # instructions whose endpoints are ALL inside the slice (ancilla rails show only their
-    # coupling to the watched data qubit; their other five CXs are cropped).
+    # coupling to the watched data qubit; their other five CXs are cropped). Star qubits are
+    # renumbered to contiguous 0..6 — timeline-svg draws a rail for every index up to the max,
+    # so keeping the original indices would render ~27 empty rails. `rails` maps back.
     noisy = BBCodeSimulator(P).build_circuit(ErrorModel.symmetric(P_REF), rounds=1)
     DATA_Q = 0
     star = {DATA_Q}
@@ -323,6 +325,8 @@ def schedule_svg_body():
             for a, b in zip(t[::2], t[1::2]):
                 if DATA_Q in (a, b):
                     star |= {a, b}
+    remap = {q: i for i, q in enumerate(sorted(star))}
+    h_qubits = set()
     sl = stim.Circuit()
     for inst in noisy.flattened():
         nm = inst.name
@@ -336,12 +340,19 @@ def schedule_svg_body():
         if nm in ("CX", "DEPOLARIZE2"):
             pairs = [(a, b) for a, b in zip(t[::2], t[1::2]) if a in star and b in star]
             if pairs:
-                sl.append(nm, [q for ab in pairs for q in ab], args)
+                sl.append(nm, [remap[q] for ab in pairs for q in ab], args)
         else:
             keep = [q for q in t if q in star]
             if keep:
-                sl.append(nm, keep, args)
-    return dict(data_q=DATA_Q, star=sorted(star - {DATA_Q}), svg=str(sl.diagram("timeline-svg")))
+                if nm == "H":
+                    h_qubits |= set(keep)
+                sl.append(nm, [remap[q] for q in keep], args)
+    def label(q):
+        return (f"data q{q}" if q == DATA_Q
+                else f"X-anc q{q}" if q in h_qubits else f"Z-anc q{q}")
+    rails = [[remap[q], q, label(q)] for q in sorted(star)]
+    return dict(data_q=DATA_Q, star=sorted(star - {DATA_Q}), rails=rails,
+                svg=str(sl.diagram("timeline-svg")))
 
 
 # ---------------------------------------------------------------------------
@@ -357,7 +368,8 @@ def run_all(r: Runner, boost72=False):
     r.task("setup__dem_counts", dict(code=CODE18, p_ref=P_REF, rounds=ROUNDS, models=list(MODELS)),
            lambda: {name: make_circuit(name, P_REF).detector_error_model().num_errors for name in MODELS})
     r.task("schedule__table", dict(code=CODE18, p_ref=P_REF, rounds=ROUNDS, n_show=12), schedule_table_body)
-    r.task("schedule__star_svg", dict(code=CODE18, p_ref=P_REF, rounds=1, data_q=0), schedule_svg_body)
+    r.task("schedule__star_svg", dict(code=CODE18, p_ref=P_REF, rounds=1, data_q=0, compact_rails=True),
+           schedule_svg_body)
 
     # §1 + §3 (tech3 needs tech2's D and L(D)); §2; §4
     for name in MODELS:

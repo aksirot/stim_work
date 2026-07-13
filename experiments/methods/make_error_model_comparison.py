@@ -182,10 +182,12 @@ print()
 print(section_time("setup", "schedule"))''')
 
 code(r'''# The labelled noise boxes (DEP1 = gate/meas idle + post-H 1q-gate noise, DEP2 = cz,
-# ERR = prep/meas X_ERROR) sit exactly where the table's ·channel tags put them. Caveat: the
-# ancilla rails show only their coupling to the watched data qubit (other CXs are cropped).
+# ERR = prep/meas X_ERROR) sit exactly where the table's ·channel tags put them. Caveats: the
+# ancilla rails show only their coupling to the watched data qubit (other CXs are cropped),
+# and rails are renumbered 0..6 so uninvolved qubits don't render as empty rows — the mapping
+# back to the original circuit indices is printed here.
 star = load("schedule__star_svg")
-print(f"slice: data q{star['data_q']} + its checks {star['star']}")
+print("rails: " + "   ".join(f"q{new} = {lbl}" for new, old, lbl in star["rails"]))
 display(SVG(star["svg"]))''')
 
 # ===========================================================================
@@ -589,6 +591,90 @@ print(f"Λ_full(p*={P_LAM}) at the ×5 point: {lam8:.3g} ± {inv8_se/inv8**2:.2g
 _ = lambda_decomposition(asym[("full", "18")], asym[("full", "72")],
                          lambda ch: asym[(ABL_OF[ch], "18")],
                          lambda ch: asym[(ABL_OF[ch], "72")], P_LAM)''')
+
+# ---------------------------------------------------------------------------
+md(r"""### §8.4 — the §7.4 panels on the ×5 ray
+
+The point-decomposition table above is noise-limited at `p* = 5e-4`; the *curves* are not — away
+from the deep-suppression regime the same cached spectra resolve the ×5 story cleanly. This is the
+§7.4 figure remade at the device-like point, with **no new sampling**: the full mix reweights its
+own asymmetric spectra, and each isolated channel reweights its §2/§7.2 spectrum at its **own**
+rate `rᵢ·p` (the x-axis stays the base rate `p` of the un-boosted channels, the §6/§8 convention).
+Boosted channels are drawn only while `rᵢ·p ≤` the grid top their weight windows were sized for —
+beyond that the reweighted curve sags from window truncation, not physics — and every curve here
+is the reweighted measured spectrum (lower-bound caveat at very low `p`), so the crossings table
+recomputes the symmetric-ray values with the same estimator for an apples-to-apples comparison.""")
+
+code(r'''# ε-curve pairs on the ×5 ray. Isolated channels: reweight at r_i·p (no new data). Mixes:
+# reweight the asymmetric spectra along the ray. Mask boosted channels where r_i·p exceeds the
+# sampled window coverage. TINY floors the logs in crossing_p (deep-sub-onset ε72 can underflow).
+#
+# Stride fix: the 72-code and asymmetric sweeps sample the weight tail at stride 2, and
+# reweight_spectrum sums only sampled weights — at HIGH p (binomial mass inside the strided
+# tail) the raw sum undercounts LER by ~2x. fill_spectrum inserts each missing tail weight
+# with its neighbors' pooled counts (f varies slowly in w), which restores the full mass.
+# Point values at p* are unaffected (the mass sits in the contiguous w<16 head down there).
+def fill_spectrum(spec):
+    W, T, F = list(spec.weights), list(spec.trials), list(spec.failures)
+    w_out, t_out, f_out = [], [], []
+    for i, (w, t, f) in enumerate(zip(W, T, F)):
+        w_out.append(w); t_out.append(t); f_out.append(f)
+        if i + 1 < len(W) and W[i + 1] == w + 2:
+            w_out.append(w + 1); t_out.append(t + T[i + 1]); f_out.append(f + F[i + 1])
+    return FailureSpectrum(weights=w_out, trials=t_out, failures=f_out,
+                           n_expanded=spec.n_expanded, q_base=spec.q_base, p_ref=spec.p_ref)
+
+TINY = 1e-300
+X5 = "full ×5 mix"
+R_OF_ALL = dict(R_OF, **{X5: 1.0})
+eps18_x5 = {X5: per_round(reweight_spectrum(fill_spectrum(asym[("full", "18")]), p_grid).P_logical, ROUNDS)}
+eps72_x5 = {X5: per_round(reweight_spectrum(fill_spectrum(asym[("full", "72")]), p_grid).P_logical, ROUNDS72)}
+eps18_rw = {m: per_round(reweight_spectrum(tech1[m]["spec"], p_grid).P_logical, ROUNDS) for m in MODELS}
+eps72_rw = {m: per_round(reweight_spectrum(fill_spectrum(tech1_72[m]["spec"]), p_grid).P_logical, ROUNDS72)
+            for m in MODELS}
+for ch in CHANNELS:
+    eps18_x5[ch] = per_round(reweight_spectrum(tech1[ch]["spec"], R_OF[ch] * p_grid).P_logical, ROUNDS)
+    eps72_x5[ch] = per_round(reweight_spectrum(fill_spectrum(tech1_72[ch]["spec"]),
+                                               R_OF[ch] * p_grid).P_logical, ROUNDS72)
+VALID = {m: R_OF_ALL[m] * p_grid <= p_grid.max() * (1 + 1e-9) for m in eps18_x5}
+
+print(f"true per-channel thresholds on the ×5 ray (base-p convention) vs the symmetric ray")
+print(f"{'channel':14s} {'p_th ×5':>10} {'p_th sym (rw)':>14}   note")
+for m in [X5] + CHANNELS:
+    v = VALID[m]
+    pth = crossing_p(p_grid[v], np.maximum(eps18_x5[m][v], TINY), np.maximum(eps72_x5[m][v], TINY))
+    sym_m = "full symmetric" if m == X5 else m
+    pth_s = crossing_p(p_grid, np.maximum(eps18_rw[sym_m], TINY), np.maximum(eps72_rw[sym_m], TINY))
+    top = p_grid[v].max()
+    pths = f"{pth:.4f}" if pth else f">{top:.3g}"
+    pss = f"{pth_s:.4f}" if pth_s else f">{p_grid.max():.3g}"
+    note = ("×5 channel: threshold in its OWN rate = 5×p_th" if R_OF_ALL[m] > 1 else "")
+    print(f"{m:14s} {pths:>10} {pss:>14}   {note}")
+print("NB: these crossings sit near the K=4 saturation pinch (ε72 caps at 1−(2^-K)^{1/4}), so they")
+print("are estimator-sensitive — §7's f5-fit versions (full 0.0227, CZ 0.0379) may differ; treat")
+print("either as indicative. λ at very low p is an UPPER bound (zero-bin truncation of ε72).")
+
+fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 5))
+CLR = dict(COLORS, **{X5: "crimson"})
+for m in [X5] + CHANNELS:
+    col, v = CLR[m], VALID[m]
+    lw = 2.5 if m == X5 else 2
+    axL.plot(p_grid[v], eps18_x5[m][v], "-", color=col, lw=lw, label=m)
+    axL.plot(p_grid[v], eps72_x5[m][v], "--", color=col, lw=lw * 0.7)
+    lam = np.sqrt(np.maximum(eps18_x5[m][v], TINY) / np.maximum(eps72_x5[m][v], TINY))
+    axR.plot(p_grid[v], lam, "-", color=col, lw=lw, label=m)
+axL.set_xscale("log"); axL.set_yscale("log")
+axL.set_xlabel("base physical error rate p (boosted channels at 5p)")
+axL.set_ylabel("per-round logical error rate ε")
+axL.set_title("×5 ray: [[18,4,4]] (solid) vs [[72,4,8]] (dashed) — reweighted spectra")
+axL.legend(fontsize=8); axL.grid(alpha=0.3, which="both")
+axR.set_xscale("log"); axR.set_yscale("log")
+axR.axhline(1.0, color="gray", lw=1); axR.axvline(P_LAM, color="gray", ls=":", lw=1)
+axR.set_xlabel("base physical error rate p")
+axR.set_ylabel(r"$\lambda(p) = \sqrt{\varepsilon_{18}/\varepsilon_{72}}$  (per +2-distance step)")
+axR.set_title("per-step suppression on the ×5 ray ($\lambda=1$ crossings = $p_{th,i}$)")
+axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
+plt.tight_layout(); plt.show()''')
 
 # ---------------------------------------------------------------------------
 md(r"""## Takeaways
