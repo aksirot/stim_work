@@ -211,6 +211,14 @@ BB_72_4_8    = BBCodeParams(l=6,  m=6, a_exps=[(1,0),(0,0),(0,2)], b_exps=[(0,1)
 # A = x^3 + y^2 + y^7, B = y^3 + x + x^2. Exponents match the paper; n=288, k=12 verified
 # (build_parity_checks + _gf2_rank). The d=18 claim is the paper's (code distance).
 BB_288_12_18 = BBCodeParams(l=12, m=12, a_exps=[(3,0),(0,2),(0,7)], b_exps=[(0,3),(1,0),(2,0)], distance=18)
+# The gross code in the LPU paper's (tour-de-gross, arXiv:2506.03094) presentation:
+# A = 1 + y + x^3 y^-1, B = 1 + x + x^-1 y^-3 (gross_code_lpu_tdg.A_EXPS/B_EXPS). SAME code as
+# BB_144_12_12, not merely equivalent parameters: A_tdg = y^-1 A_bravyi and B_tdg = x^-1 B_bravyi,
+# and a monomial multiple of A (resp. B) is a pure relabeling of the L (resp. R) data-qubit block
+# (the group algebra is abelian, so [mA|m'B] = [A|B]·blockdiag(P_m, P_m')). The explicit
+# permutation and stabilizer-group equality are pinned by tests/test_presentation_equivalence.py
+# (campaign gate G3a: LPU-vs-memory Lambda comparisons are same-code by proof, not assumption).
+BB_144_TDG   = BBCodeParams(l=12, m=6, a_exps=[(0,0),(0,1),(3,5)], b_exps=[(0,0),(1,0),(11,3)], distance=12)
 
 
 # ---------------------------------------------------------------------------
