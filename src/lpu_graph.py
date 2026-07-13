@@ -350,3 +350,201 @@ def certify_layout(layout: LPULayout, expect_expander_edges: int = 0) -> Dict[st
 
     return {"n_vertices": layout.n_vertices, "n_edges": layout.n_edges,
             "n_cycles": len(layout.cycles)}
+
+
+# ------------------------------ logical-basis machinery ------------------------------
+def poly_from_vector(params: BBCodeParams, vec: np.ndarray) -> Tuple[Poly, Poly]:
+    """Split a length-2lm GF(2) vector into (p on L, q on R) exponent lists."""
+    n = params.l * params.m
+    p = [(t // params.m, t % params.m) for t in np.nonzero(vec[:n])[0]]
+    q = [(t // params.m, t % params.m) for t in np.nonzero(vec[n:])[0]]
+    return p, q
+
+
+def is_x_logical(params: BBCodeParams, p: Poly, q: Poly) -> bool:
+    """Paper eq:x_logical — X(p,q) commutes with every Z check iff pB + qA = 0."""
+    a = [tuple(t) for t in params.a_exps]
+    b = [tuple(t) for t in params.b_exps]
+    return not (set(poly_mul(params, p, b)) ^ set(poly_mul(params, q, a)))
+
+
+def basis_report(params: BBCodeParams, p: Poly, q: Poly, r: Poly, s: Poly,
+                 mu: Tuple[int, int]) -> List[str]:
+    """Check the App-A.1 basis properties needed by the construction; return violations.
+
+    Encoded: X1/X7 are X-logicals (Z1/Z7 follow by ZX-duality); the two anticommuting pairs
+    (X1,Z1) and (X7,Z7) each overlap on EXACTLY one qubit, dual-consistent with mu; and the
+    Z-check neighborhoods of X1 and X7 are disjoint (property 4 — keeps deformed check degree
+    growth <= 1 when both halves attach). Property 2 (shifts generate the logical group) is
+    checked separately where k is known (see find_mini_basis)."""
+    bad: List[str] = []
+    if not is_x_logical(params, p, q):
+        bad.append("X(p,q) is not a logical operator (pB + qA != 0)")
+    if not is_x_logical(params, r, s):
+        bad.append("X(r,s) is not a logical operator (rB + sA != 0)")
+    try:
+        id_l, id_r = derive_identified(params, p, q, r, s, mu)
+    except LPUDerivationError as e:
+        bad.append(f"X1/Z1 overlap rule: {e}")
+        id_l = id_r = None
+    # the dual pair: X7 and Z7 = Z(mu q^T, mu p^T) must also overlap on exactly one qubit,
+    # and by the paper's symmetry that qubit is id_r (its mu-dual is id_l).
+    if id_l is not None:
+        x7 = set(support(params, r, s))
+        z7 = set(support(params, poly_mul_mono(params, poly_T(params, q), mu),
+                         poly_mul_mono(params, poly_T(params, p), mu)))
+        ov = x7 & z7
+        if ov != {id_r}:
+            bad.append(f"X7/Z7 overlap is {sorted(ov)}, expected exactly {{{id_r}}}")
+    # property 4: disjoint Z-check neighborhoods of supp(X1) and supp(X7)
+    _, H_Z = build_HX_HZ(params)
+    def zchecks(vs):
+        cols = [qubit_index(params, v) for v in vs]
+        return set(np.nonzero(H_Z[:, cols].sum(axis=1))[0].tolist())
+    common = zchecks(support(params, p, q)) & zchecks(support(params, r, s))
+    if common:
+        bad.append(f"Z-check neighborhoods of X1 and X7 intersect ({len(common)} checks) "
+                   "— property 4 violated")
+    return bad
+
+
+def derive_lpu_layout(params: BBCodeParams, p: Poly, q: Poly, r: Poly, s: Poly,
+                      mu: Tuple[int, int]) -> LPULayout:
+    """Assemble and certify a full LPU layout from a logical basis. Fails loudly
+    (LPUDerivationError) at the FIRST rule the code/basis cannot satisfy.
+
+    Derived layouts use a full fundamental cycle basis for U_l/U_r (valid; the paper's
+    redundancy elimination is an optimization, not a correctness requirement) and the first
+    deterministic Hamiltonian tour pair for the bridges."""
+    bad = basis_report(params, p, q, r, s, mu)
+    if bad:
+        raise LPUDerivationError("basis invalid: " + "; ".join(bad))
+    _, H_Z = build_HX_HZ(params)
+    V_l, V_r = support(params, p, q), support(params, r, s)
+    id_l, id_r = derive_identified(params, p, q, r, s, mu)
+    E_l = derive_edges(params, V_l, H_Z)
+    E_r = derive_edges(params, V_r, H_Z)
+    tours_l = derive_bridges(V_l, E_l, id_l)
+    tours_r = derive_bridges(V_r, E_r, id_r)
+    if not tours_l:
+        raise LPUDerivationError("no Hamiltonian tour through V_l \\ {id} starting beside id "
+                                 "(G_l too sparse — expander edges would be needed)")
+    if not tours_r:
+        raise LPUDerivationError("no Hamiltonian tour through V_r \\ {id} starting beside id "
+                                 "(G_r too sparse — expander edges would be needed)")
+    layout = LPULayout(params=params, p=p, q=q, r=r, s=s, mu=mu,
+                       V_l=V_l, V_r=V_r, identified_l=id_l, identified_r=id_r,
+                       E_l_detail=E_l, E_r_detail=E_r,
+                       bridge_top=tours_l[0], bridge_bottom=tours_r[0],
+                       U_l=fundamental_cycles(V_l, E_l), U_r=fundamental_cycles(V_r, E_r))
+    certify_layout(layout)
+    return layout
+
+
+# ------------------------------ small-code basis search ------------------------------
+def enumerate_x_logicals(params: BBCodeParams, max_weight: int) -> List[Tuple[Poly, Poly]]:
+    """All X-logical operators (mod nothing — every coset element) of weight <= max_weight.
+
+    Feasible for SMALL codes only: enumerates ker(H_Z-commutation) = the X-logical group
+    directly from its GF(2) basis (2^dim elements). [[18,4,4]]: dim 11 -> 2048."""
+    from bb_code_sim import _gf2_rref
+    H_X, H_Z = build_HX_HZ(params)
+    n2 = 2 * params.l * params.m
+    # kernel of H_Z (X ops commuting with all Z checks), via RREF nullspace
+    R, piv = _gf2_rref(H_Z.copy())
+    free = [c for c in range(n2) if c not in piv]
+    basis = []
+    for fc in free:
+        v = np.zeros(n2, dtype=np.uint8)
+        v[fc] = 1
+        for row_i, pc in enumerate(piv):
+            if R[row_i, fc]:
+                v[pc] = 1
+        basis.append(v)
+    # X-stabilizer rowspace membership test (to drop pure stabilizers)
+    RS, pivS = _gf2_rref(H_X.copy())
+
+    def is_stabilizer(vec) -> bool:
+        v = vec.copy()
+        for row_i, pc in enumerate(pivS):
+            if v[pc]:
+                v = (v + RS[row_i]) % 2
+        return not v.any()
+
+    out = []
+    dim = len(basis)
+    if dim > 22:
+        raise LPUDerivationError(f"X-logical group too big to enumerate (2^{dim})")
+    B = np.array(basis, dtype=np.uint8)
+    for mask in range(1, 1 << dim):
+        sel = [(mask >> i) & 1 for i in range(dim)]
+        v = (np.array(sel, dtype=np.uint8) @ B) % 2
+        if int(v.sum()) <= max_weight and not is_stabilizer(v):
+            out.append(poly_from_vector(params, v))
+    return out
+
+
+def find_mini_basis(params: BBCodeParams, max_weight: Optional[int] = None,
+                    verbose: bool = False):
+    """Search a (p, q, r, s, mu) basis satisfying the construction on a SMALL code.
+
+    Tries every ordered pair of minimum-ish-weight X logicals and every monomial mu,
+    requiring: basis_report clean AND shifts of X1, X7 generate the full X-logical group
+    mod stabilizers (property 2, adapted to k). Returns (p, q, r, s, mu, layout) for the
+    first basis whose full layout derivation ALSO succeeds; raises LPUDerivationError with
+    a failure census if none works."""
+    from bb_code_sim import _gf2_rank
+    H_X, _ = build_HX_HZ(params)
+    max_weight = max_weight or params.distance
+    cands = enumerate_x_logicals(params, max_weight)
+    if verbose:
+        print(f"[mini] {len(cands)} X-logicals of weight <= {max_weight}")
+    n = params.l * params.m
+
+    def vec_of(p: Poly, q: Poly) -> np.ndarray:
+        v = np.zeros(2 * n, dtype=np.uint8)
+        for i, j in p:
+            v[(i % params.l) * params.m + (j % params.m)] = 1
+        for i, j in q:
+            v[n + (i % params.l) * params.m + (j % params.m)] = 1
+        return v
+
+    def shifts_generate(pq, rs) -> bool:
+        rows = [H_X]
+        for di in range(params.l):
+            for dj in range(params.m):
+                for (pp, qq) in (pq, rs):
+                    rows.append(vec_of(poly_mul_mono(params, pp, (di, dj)),
+                                       poly_mul_mono(params, qq, (di, dj)))[None, :])
+        full = _gf2_rank(np.vstack(rows))
+        k = 2 * n - 2 * _gf2_rank(H_X)  # CSS with rank(H_X)=rank(H_Z)
+        return full == _gf2_rank(H_X) + k
+
+    census: Dict[str, int] = {}
+    monos = [(i, j) for i in range(params.l) for j in range(params.m)]
+    for a_idx, (p, q) in enumerate(cands):
+        for b_idx, (r, s) in enumerate(cands):
+            if b_idx == a_idx:
+                continue
+            for mu in monos:
+                bad = basis_report(params, p, q, r, s, mu)
+                if bad:
+                    key = bad[0].split("(")[0].strip()
+                    census[key] = census.get(key, 0) + 1
+                    continue
+                if not shifts_generate((p, q), (r, s)):
+                    census["property 2: shifts do not generate"] = \
+                        census.get("property 2: shifts do not generate", 0) + 1
+                    continue
+                try:
+                    layout = derive_lpu_layout(params, p, q, r, s, mu)
+                except LPUDerivationError as e:
+                    key = str(e).split(":")[0][:60]
+                    census[key] = census.get(key, 0) + 1
+                    continue
+                if verbose:
+                    print(f"[mini] FOUND basis: p={p} q={q} r={r} s={s} mu={mu}")
+                return p, q, r, s, mu, layout
+    raise LPUDerivationError(
+        f"no valid LPU basis for {params.l}x{params.m} code at max_weight={max_weight}; "
+        f"failure census: {census}")

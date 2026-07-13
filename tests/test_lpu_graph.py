@@ -74,3 +74,42 @@ def test_certifier_rejects_corruption(gross_layout):
 def test_support_matches_builder_vertices():
     assert sorted(support(BB_144_TDG, tdg.P, tdg.Q)) == sorted(tdg.V_L_RAW)
     assert sorted(support(BB_144_TDG, tdg.R_POLY, tdg.S_POLY)) == sorted(tdg.V_R_RAW)
+
+
+# ------------------------------ stage 2: generic derivation ------------------------------
+def test_gross_basis_report_clean():
+    from lpu_graph import basis_report
+    assert basis_report(BB_144_TDG, tdg.P, tdg.Q, tdg.R_POLY, tdg.S_POLY, (1, 1)) == []
+
+
+def test_generic_derivation_reproduces_gross_structure():
+    """derive_lpu_layout from the paper basis alone: same vertices/edges/id as the fixture;
+    its own (valid) tour; full 25-cycle basis instead of the paper's reduced 19."""
+    from lpu_graph import derive_lpu_layout
+    lay = derive_lpu_layout(BB_144_TDG, tdg.P, tdg.Q, tdg.R_POLY, tdg.S_POLY, (1, 1))
+    assert (lay.n_vertices, lay.n_edges) == (23, 47)
+    assert (lay.identified_l, lay.identified_r) == (tdg.IDENTIFIED_L_SIDE, tdg.IDENTIFIED_R_SIDE)
+    assert len(lay.cycles) == 7 + 7 + 11        # full fundamental bases + ladder cycles
+
+
+def test_mini_lpu_impossible_at_3_3():
+    """The [[18,4,4]] Kunlun code admits NO tour-de-gross LPU — proven two ways.
+
+    (a) Pigeonhole lemma: every weight<=4 X-logical touches >= 6 of the 9 Z-checks, so two
+        logicals can never have disjoint Z-check neighborhoods (property 4): 6+6 > 9.
+        Higher-weight logicals only touch MORE checks, so no weight bound rescues it.
+    (b) The exhaustive basis search fails loudly with property violations for all
+        45x44x9 combinations."""
+    import numpy as np
+    from bb_code_sim import BB_18_4_4
+    from lpu_graph import (LPUDerivationError, build_HX_HZ, enumerate_x_logicals,
+                           find_mini_basis, qubit_index)
+    _, H_Z = build_HX_HZ(BB_18_4_4)
+    from lpu_graph import support as supp
+    sizes = []
+    for p, q in enumerate_x_logicals(BB_18_4_4, max_weight=4):
+        cols = [qubit_index(BB_18_4_4, v) for v in supp(BB_18_4_4, p, q)]
+        sizes.append(int((H_Z[:, cols].sum(axis=1) > 0).sum()))
+    assert min(sizes) == 6 and 2 * min(sizes) > H_Z.shape[0]      # the pigeonhole
+    with pytest.raises(LPUDerivationError, match="no valid LPU basis"):
+        find_mini_basis(BB_18_4_4, max_weight=4)
