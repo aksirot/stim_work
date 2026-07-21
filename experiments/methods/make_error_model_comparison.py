@@ -573,18 +573,19 @@ for m in MODELS:
     axL.plot(p_grid, eps72[m], "--", color=col, lw=1.5)
     mp = sorted(mc72[m])
     axL.plot(mp, [per_round(np.asarray([mc72[m][p][0]]), ROUNDS72)[0] for p in mp], "^", color=col, ms=6)
-    axR.plot(p_grid, np.sqrt(eps18[m] / eps72[m]), "-", color=col, lw=2, label=m)
+    axR.plot(p_grid, np.sqrt(eps72[m] / eps18[m]), "-", color=col, lw=2, label=m)
 axL.set_xscale("log"); axL.set_yscale("log")
 axL.set_xlabel("physical error rate p"); axL.set_ylabel("per-round logical error rate ε")
 axL.set_title("[[18,4,4]] (solid, 2 rounds) vs [[72,4,8]] (dashed, 4 rounds; ▲=MC)")
 axL.legend(fontsize=8); axL.grid(alpha=0.3, which="both")
 axR.set_xscale("log"); axR.set_yscale("log")
 axR.axhline(1.0, color="gray", lw=1); axR.axvline(P_LAM, color="gray", ls=":", lw=1)
-# √Λ = per-(+2-distance)-step suppression (d: 4→8 is two steps) — directly comparable to the
-# per-step λ Google quotes for the surface-code ladder (Willow: λ ≈ 2.14). λ=1 crossings = p_th.
+# 1/√Λ = per-(+2-distance)-step suppression DEFICIT (d: 4→8 is two steps) — the inverse of the
+# per-step λ Google quotes for the surface-code ladder (Willow: λ ≈ 2.14 → 1/λ ≈ 0.47).
+# 1/λ=1 crossings = p_th; below 1 = suppressing, and the low-p slope reads as the order.
 axR.set_xlabel("physical error rate p")
-axR.set_ylabel(r"$\lambda(p) = \sqrt{\varepsilon_{18}/\varepsilon_{72}}$  (per +2-distance step)")
-axR.set_title("per-step error suppression (crossings at $\lambda=1$ = true $p_{th,i}$)")
+axR.set_ylabel(r"$1/\lambda(p) = \sqrt{\varepsilon_{72}/\varepsilon_{18}}$  (per +2-distance step)")
+axR.set_title("per-step suppression deficit (crossings at $1/\lambda=1$ = true $p_{th,i}$)")
 axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
 plt.tight_layout(); plt.show()''')
 
@@ -765,7 +766,7 @@ for m in [X5] + CHANNELS:
     print(f"{m:14s} {pths:>10} {pss:>14}   {note}")
 print("NB: these crossings sit near the K=4 saturation pinch (ε72 caps at 1−(2^-K)^{1/4}), so they")
 print("are estimator-sensitive — §7's f5-fit versions (full 0.0227, CZ 0.0379) may differ; treat")
-print("either as indicative. λ at very low p is an UPPER bound (zero-bin truncation of ε72).")
+print("either as indicative. 1/λ at very low p is a LOWER bound (zero-bin truncation of ε72).")
 
 fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 5))
 CLR = dict(COLORS, **{X5: "crimson"})
@@ -774,8 +775,8 @@ for m in [X5] + CHANNELS:
     lw = 2.5 if m == X5 else 2
     axL.plot(p_grid[v], eps18_x5[m][v], "-", color=col, lw=lw, label=m)
     axL.plot(p_grid[v], eps72_x5[m][v], "--", color=col, lw=lw * 0.7)
-    lam = np.sqrt(np.maximum(eps18_x5[m][v], TINY) / np.maximum(eps72_x5[m][v], TINY))
-    axR.plot(p_grid[v], lam, "-", color=col, lw=lw, label=m)
+    inv_lam = np.sqrt(np.maximum(eps72_x5[m][v], TINY) / np.maximum(eps18_x5[m][v], TINY))
+    axR.plot(p_grid[v], inv_lam, "-", color=col, lw=lw, label=m)
 axL.set_xscale("log"); axL.set_yscale("log")
 axL.set_xlabel("base physical error rate p (boosted channels at 5p)")
 axL.set_ylabel("per-round logical error rate ε")
@@ -784,8 +785,8 @@ axL.legend(fontsize=8); axL.grid(alpha=0.3, which="both")
 axR.set_xscale("log"); axR.set_yscale("log")
 axR.axhline(1.0, color="gray", lw=1); axR.axvline(P_LAM, color="gray", ls=":", lw=1)
 axR.set_xlabel("base physical error rate p")
-axR.set_ylabel(r"$\lambda(p) = \sqrt{\varepsilon_{18}/\varepsilon_{72}}$  (per +2-distance step)")
-axR.set_title("per-step suppression on the ×5 ray ($\lambda=1$ crossings = $p_{th,i}$)")
+axR.set_ylabel(r"$1/\lambda(p) = \sqrt{\varepsilon_{72}/\varepsilon_{18}}$  (per +2-distance step)")
+axR.set_title("per-step suppression DEFICIT on the ×5 ray ($1/\lambda=1$ crossings = $p_{th,i}$)")
 axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
 plt.tight_layout(); plt.show()''')
 
