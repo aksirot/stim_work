@@ -25,8 +25,16 @@ pin_onset: false
 relay_num_sets: 20
 relay_stop_nconv: 5
 
+# The idle circuit is the BARE gross code (no LPU checks), so it keeps the full Z_12 x Z_6
+# toric translation symmetry — build_circuit_translation_perms extracts 72 perms (verified).
+# This is REQUIRED for a correct onset: idle has even D=10, so |L(D)| feeds the exact f0 via
+# Proposition 1, and without orbit expansion |L(D)| is a 72x-loose lower bound (=> under-counted
+# f0). NB it does NOT prune the 2^K-1=4095 systematic decodes in the current find_min_weight_logicals
+# (that symmetry-pruning is an unimplemented optimization — see runbook). The two LPU configs
+# (y1, automorphism) keep mw_use_symmetry:false: they lack clean toric symmetry (LPU checks /
+# shift structure) and the perm builder fail-softs on them anyway.
 mw_single_sector: false
-mw_use_symmetry: false
+mw_use_symmetry: true
 mw_max_trials: 500
 mw_workers: 16
 

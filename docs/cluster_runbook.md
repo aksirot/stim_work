@@ -132,6 +132,19 @@ structure). Fix in progress. The weight-1 degeneracy scan (full DEM, zero
 same-syndrome-different-action groups) is now a MANDATORY Wave-5 gate for every new
 operation builder — it catches informationally-unresolvable floors that no decoder probe
 can attribute.
+**Symmetry (2026-07-22):** the IDLE circuit is the bare gross code and keeps full Z12xZ6
+toric symmetry (72 perms; build_circuit_translation_perms works with l=12,m=6) — so
+gross_lpu_idle.yaml uses mw_use_symmetry:true. REQUIRED, not just faster: idle has even
+D=10, |L(D)| feeds the exact Prop.1 onset f0, and without orbit expansion |L(D)| (hence
+f0) is 72x-loose. The Y1/automorphism circuits genuinely lack it (LPU checks / shift), keep
+false. GOTCHA: experiment_runner does NOT persist the found L(D) supports (only counts in
+distance.json), so a symmetry-off run's loose |L(D)|/f0 is UNRECOVERABLE — must re-run
+Tech II, can't post-expand. LATENT OPTIMIZATION (unimplemented, high value for
+gross/two-gross Tech II costing): find_min_weight_logicals only orbit-expands FOUND
+logicals; it still decodes all 2^K-1 systematic classes. With toric symmetry you need only
+ONE representative per orbit => ~(2^K-1)/72 ≈ 57 decodes instead of 4095, a ~72x cut to the
+Technique-II search cost. Would make the ~350 core-h/pass two-gross search (see
+bb144-exact-mitm-effort costing) dramatically cheaper.
 
 ## Wave 6 — double-gross LPU                    open-ended
 Blocked on derive_lpu_layout at (12,12). First job = sizing probe, then mirror W1b→W3.
