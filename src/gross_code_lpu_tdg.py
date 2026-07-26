@@ -1407,6 +1407,88 @@ def build_full_lpu_cycle(
     _append_idle(circuit, idle_pool, set(cycle_qs), p)
 
 
+# ---------------------------------------------------------------------------
+# Layer 7c — Inter-module code-code adapter (gross-to-gross X̄₁⊗X̄₁)
+# ---------------------------------------------------------------------------
+#
+# Two gross modules A (qubits 0..N_TOTAL_QUBITS-1) and B (offset N_TOTAL_QUBITS)
+# each run the X̄₁ half-LPU (V_l/E_l/U_l/v_Bell) AUGMENTED with their 11 bridge
+# qubits, and are joined by a "Bell-coupler" adapter (Tour de Gross
+# arXiv:2506.03094 §Inter-module measurements + code-code adapter appendix). The
+# adapter Bell-couples the two modules' bridge qubits/checks; the product of the
+# joint measurement is X̄₁(A)⊗X̄₁(B). See build_joint_x1x1_circuit for the full
+# framing and the two paper-underdetermined knobs (U1 bridge-check gate type,
+# U2 cross-module U_B support) held in AdapterGraph.
+
+
+def _shift_circuit(sub: stim.Circuit, offset: int) -> stim.Circuit:
+    """Return a copy of `sub` with every QUBIT target shifted by `offset`.
+
+    `sub` must contain only qubit-target ops (R/H/CX/CZ/CY/M/DEPOLARIZE*/X_ERROR/
+    TICK) — NO DETECTOR/OBSERVABLE/measurement-record targets — so the shift is a
+    pure qubit relabel that preserves gate order, probabilities, and measurement
+    ORDER (records concatenate into the master stream, counted by _MeasTracker).
+    This lets the unchanged single-module builders emit module B at an offset,
+    leaving the Wave-5 regression baselines byte-for-byte intact.
+    """
+    out = stim.Circuit()
+    for inst in sub:
+        if isinstance(inst, stim.CircuitRepeatBlock):
+            raise ValueError("_shift_circuit: REPEAT blocks not supported")
+        new_targets: List[int] = []
+        for t in inst.targets_copy():
+            if t.is_qubit_target:
+                new_targets.append(t.value + offset)
+            else:
+                raise ValueError(
+                    f"_shift_circuit: op {inst.name!r} has a non-qubit target "
+                    f"(record/pauli/combiner); only qubit-target ops may be shifted"
+                )
+        out.append(inst.name, new_targets, inst.gate_args_copy())
+    return out
+
+
+def _half_lpu_l_inter() -> HalfLPU:
+    """The X̄₁ half-LPU AUGMENTED with the module's 11 bridge qubits.
+
+    Identical to `_half_lpu('X1')` (V_l vertices, E_l edges, 5 U_l cycles,
+    v_Bell) except the 11 bridge edge qubits (E_ALL kind 'B') are made active.
+    Each bridge edge is then coupled — in build_lpu_cycle's vertex step — from
+    its single active endpoint, the BRIDGE_TOP vertex in V_l (its BRIDGE_BOTTOM
+    endpoint is a V_r vertex, inactive in the l-half). So each bridge qubit
+    "dangles" toward the adapter, which Bell-couples it to module B's mirror.
+
+    The U_B cycles are deliberately NOT added here: the intra-module U_B squares
+    traverse V_r/E_r qubits that are inactive in the l-half, so the cross-module
+    U_B checks are emitted separately by build_adapter_cycle (see AdapterGraph).
+    """
+    half = _half_lpu('X1')
+    bridge_eqs = [EDGE_QUBIT[_frozen_edge_key(e)] for e in E_ALL if e[3] == 'B']
+    assert len(bridge_eqs) == 11, f"expected 11 bridge edges, got {len(bridge_eqs)}"
+    # no bridge qubit should already be active (E_l only in the base half)
+    assert not (set(bridge_eqs) & set(half.active_edge_indices))
+    return HalfLPU(
+        active_vertex_keys=half.active_vertex_keys,
+        active_edge_indices=half.active_edge_indices + bridge_eqs,
+        active_cycle_indices=half.active_cycle_indices,      # 5 U_l cycles only
+        vertex_data=half.vertex_data,
+        vertex_edges=half.vertex_edges,
+        deformation_z=half.deformation_z,
+        deformation_x=half.deformation_x,
+        anticomm_z_checks=half.anticomm_z_checks,
+        anticomm_x_checks=half.anticomm_x_checks,
+    )
+
+
+def _bridge_edge_qubits() -> List[int]:
+    """The 11 bridge edge-qubit indices, in BRIDGE_EDGES order (module A frame)."""
+    out: List[int] = []
+    for (a, b) in BRIDGE_EDGES:
+        e = (_canonical_vertex(a), _canonical_vertex(b), None, 'B')
+        out.append(EDGE_QUBIT[_frozen_edge_key(e)])
+    return out
+
+
 def _op_vec(L_part: List[Tuple[int, int]],
             R_part: List[Tuple[int, int]]) -> np.ndarray:
     """Length-144 GF(2) support vector of a monomial-list Pauli operator."""
