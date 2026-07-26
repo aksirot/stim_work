@@ -1489,6 +1489,59 @@ def _bridge_edge_qubits() -> List[int]:
     return out
 
 
+@dataclass
+class AdapterGraph:
+    """Code-code adapter joining two gross modules' l-half bridges (Tour de Gross
+    arXiv:2506.03094 §Inter-module measurements). Holds the two knobs the paper's
+    text/figures leave underdetermined, both arbitrated by the E2 TableauSimulator
+    gate (does the circuit project onto a +1 eigenstate of X̄₁(A)⊗X̄₁(B)?):
+
+      U1  bridge_coupling_gate: 'CZ' (default) or 'CX' — the Pauli type of the
+          adapter check that "identifies" bridge qubit A^k with B^k.
+      U2  (DERIVED + verified): the 10 cross-module U_B checks. Each intra-module
+          U_B[k] square is [top_k, top_{k+1}, bottom_{k+1}, bottom_k] with edge
+          kinds [E_l, bridge, E_r, bridge]; the V_r 'bottom' E_r edge is inactive
+          in the l-half, so the cross-module mirror REPLACES it with module B's
+          own E_l 'top' edge — the square closes through the two Bell-coupled
+          bridge qubits k, k+1. Support(U_B_cross[k]) = {A_top_k, B_top_k,
+          bridge_k, bridge_{k+1}} (bridge qubits are the identified pairs).
+    """
+    bridge_eqs: List[int]        # 11 bridge edge qubits (A frame), BRIDGE order
+    ub_top_eqs: List[int]        # 10 E_l top-edge qubits (A frame), k=0..9
+    bridge_coupling_gate: str = 'CZ'
+
+
+def _adapter_graph(bridge_coupling_gate: str = 'CZ') -> AdapterGraph:
+    """Build the code-code adapter descriptor (see AdapterGraph). All edge-qubit
+    indices are in module-A's frame; module B adds the qubit offset at emit."""
+    bridge_eqs = _bridge_edge_qubits()                     # 11, indices 324..334
+    ub_top_eqs: List[int] = []
+    for k in range(len(BRIDGE_TOP) - 1):                   # 10 adjacent pairs
+        a = _canonical_vertex(BRIDGE_TOP[k])
+        b = _canonical_vertex(BRIDGE_TOP[k + 1])
+        key = (a, b, 'L') if a <= b else (b, a, 'L')
+        assert key in EDGE_QUBIT, (
+            f"cross-module U_B[{k}] top edge {key} not an E_l edge")
+        ub_top_eqs.append(EDGE_QUBIT[key])
+    assert len(ub_top_eqs) == 10
+    if bridge_coupling_gate not in ('CZ', 'CX'):
+        raise ValueError(f"bridge_coupling_gate must be CZ or CX, got {bridge_coupling_gate!r}")
+    return AdapterGraph(bridge_eqs=bridge_eqs, ub_top_eqs=ub_top_eqs,
+                        bridge_coupling_gate=bridge_coupling_gate)
+
+
+def _ub_cross_support(adapter: AdapterGraph, k: int, offset_b: int) -> List[int]:
+    """The 4 edge-qubit indices (merged frame) of cross-module U_B check k=0..9:
+    module-A top edge, module-B top edge, and the two Bell-coupled bridge qubits
+    (represented by module A's copies)."""
+    return [
+        adapter.ub_top_eqs[k],                 # A top edge (E_l)
+        adapter.ub_top_eqs[k] + offset_b,      # B top edge (E_l, mirror of V_r)
+        adapter.bridge_eqs[k],                 # bridge k   (identified pair)
+        adapter.bridge_eqs[k + 1],             # bridge k+1 (identified pair)
+    ]
+
+
 def _op_vec(L_part: List[Tuple[int, int]],
             R_part: List[Tuple[int, int]]) -> np.ndarray:
     """Length-144 GF(2) support vector of a monomial-list Pauli operator."""
