@@ -3002,6 +3002,12 @@ def build_joint_x1x1_circuit(
             for u in range(5):
                 circuit.append("DETECTOR", [trk.rec(rec['uA'] + u)], [2, u, 0])
                 circuit.append("DETECTOR", [trk.rec(rec['uB'] + u)], [12, u, 0])
+            # Anchor the U_B gauge cycle checks at c=0 (deterministic on freshly-init |0⟩
+            # edges, like the U_l/U_r cycle checks). The bridge BELL checks canNOT be anchored
+            # this way — each is a genuinely random Bell outcome at round 0 (set by the round-0
+            # vertex measurements), so it has no fixed single-round value.
+            for k in range(10):
+                circuit.append("DETECTOR", [trk.rec(rec['ad'] + 22 + k)], [17, k, 0])
         else:
             pv = hist[c - 1]
             for u in range(5):
