@@ -9,6 +9,14 @@
 # WHY NOT run_local.sh: that launcher bind-mounts only runs/, so it would run against the image's
 # BAKED experiments/ and never see these configs. This one mounts experiments/ too.
 #
+# ⚠️ WHY THIS ALSO MOUNTS src/ (run_lpu_boost.sh does NOT, and does not need to):
+# the Containerfile BAKES the code (`COPY src/ ./src/`), and the shipped image is from 2026-07-24.
+# build_joint_x1x1_circuit and its close_cycles fix both landed 2026-07-27, so the image has NO
+# inter-module builder at all — without this mount every job dies immediately on an import/attribute
+# error. `pip install -e .` resolves the package to /opt/stim_work/src, so bind-mounting the host
+# src/ over it is enough; no image rebuild needed. Drop this mount only once a rebuilt image that
+# contains the builder has actually been loaded on the target box.
+#
 # SHARED-BOX BUDGET: CPUS=8 per job x 2 jobs = 16 of 96 cores (17%). If the Wave-5b boost pass is
 # also running (3 jobs x 8 = 24), the combined footprint is 40 of 96 (42%). CHECK WHO ELSE IS ON
 # THE BOX before launching; stagger the waves if the machine is busy.
@@ -59,8 +67,10 @@ launch() {  # name  config-path
   local cmd=( podman run -d --name "$name"
     -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
     -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
+    -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"
     -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}"
     -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}"
+    -e PYTHONDONTWRITEBYTECODE=1        # host __pycache__ may be Windows-written; don't mix
     -w /opt/stim_work "${IMAGE}"
     python -m experiment_runner --config "${cfg}" --cpus "${CPUS}" )
   echo "[launch] ${name}  (threads=${CPUS})  cfg=${cfg}"
