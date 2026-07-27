@@ -14,6 +14,12 @@ Each wave is a copy-paste section: run top to bottom, check every box before `sb
 - A timed-out/killed task is resumable: re-run the SAME sbatch line (per-weight checkpoint
   loses at most one weight). If it aborts with "weights_plan/seed mismatch": the config
   changed under a live run — do NOT edit configs of running jobs.
+- **rodan has NO host python and NO scheduler.** Everything runs inside the podman image:
+  `podman run --rm ... localhost/stim-work-qec:latest python ...`. Any runbook line below that
+  invokes bare `python`/`pytest`/`srun`/`sbatch` on the login node is from the SLURM era and will
+  not work there. Host-side tooling is limited to git, rsync, podman and shell (`box_load.sh` is
+  deliberately pure bash for this reason). Analysis that needs python — `qc_wave.py`,
+  `lambda_analysis`, the report notebooks — runs on the LOCAL box after an rsync, not on rodan.
 - Pull results home from the local box (any time; checkpoints are atomic):
   `rsync -av cluster:stim_work/runs/framework/ runs/cluster/framework/`
   `rsync -av cluster:stim_work/runs/slurm/     runs/cluster/slurm/`
@@ -342,7 +348,12 @@ and must not be divided by core count again.
    git checkout main || git checkout -b main origin/main
    git pull --ff-only origin main     # ff-only: refuse a surprise merge on the cluster
    git rev-parse HEAD                 # record as the pinned SHA above
-   python -m pytest -q                # must be green before launching
+   ```
+   Then run the suite **inside the container** — rodan has NO host python (see Global rules).
+   Mount `tests/` as well as `src/`/`experiments/`, or you test the image's baked copies instead
+   of the checkout you just pulled:
+   ```
+   podman run --rm      -v "$PWD/src:/opt/stim_work/src:Z"      -v "$PWD/experiments:/opt/stim_work/experiments:Z"      -v "$PWD/tests:/opt/stim_work/tests:Z"      -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work      localhost/stim-work-qec:latest python -m pytest -q
    ```
 3. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
