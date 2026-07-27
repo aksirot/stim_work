@@ -28,6 +28,13 @@ bb6_fig10_out*/
 *_smoke/
 *.log
 
+# Generated report exports — regenerate from the notebook, don't version the artifact
+notebooks/**/*.html
+
+# Reference papers (large binaries; fetch from arXiv)
+failfast.pdf
+*.pdf
+
 # Keys / secrets
 githubkey
 githubkey.pub
