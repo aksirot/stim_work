@@ -357,12 +357,12 @@ and must not be divided by core count again.
    Mount `tests/` as well as `src/`/`experiments/`, or you test the image's baked copies instead
    of the checkout you just pulled:
    ```
-   podman run --rm \
+   podman run --rm -t \
      -v "$PWD/src:/opt/stim_work/src:Z" \
      -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
      -v "$PWD/tests:/opt/stim_work/tests:Z" \
      -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
-     localhost/stim-work-qec:latest python -m pytest -q
+     localhost/stim-work-qec:latest python -u -m pytest -q
    ```
 3. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory

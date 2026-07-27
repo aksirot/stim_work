@@ -51,13 +51,18 @@ Mount `tests/` as well as `src/`, or you validate the image's **baked** tests (w
 builder) instead of the checkout you just pulled.
 
 ```bash
-podman run --rm \
+podman run --rm -t \
   -v "$PWD/src:/opt/stim_work/src:Z" \
   -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
   -v "$PWD/tests:/opt/stim_work/tests:Z" \
   -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
-  localhost/stim-work-qec:latest python -m pytest -q
+  localhost/stim-work-qec:latest python -u -m pytest -q
 ```
+
+**Takes ~5 minutes** (128 tests). The `-t` and `python -u` are not cosmetic: without a TTY,
+python block-buffers stdout inside the container, so you get several minutes of complete silence
+and then all the output at once. That silence looks exactly like a hang. To confirm it is alive
+from another shell: `podman stats --no-stream` (CPU% non-zero) or `podman ps`.
 
 ## 3. Check the box has room
 
@@ -162,3 +167,4 @@ weight, and the IS spectra land inside the frozen weight blocks (no mass piled a
 | mount denied / permission errors | missing SELinux relabel | keep the `:Z` suffix on every `-v` |
 | `podman --cpus` errors | rootless cgroup delegation unavailable | thread caps are env vars (`OMP_/RAYON_NUM_THREADS`), never `--cpus` |
 | resume aborts on mismatch | a config changed under a live run | restore the config, or start a new outdir |
+| long silence, no output, looks hung | no TTY ⇒ python block-buffers stdout in the container | add `-t` and `python -u`; check liveness with `podman stats --no-stream` |
