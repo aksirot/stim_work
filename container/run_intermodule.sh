@@ -4,7 +4,7 @@
 #
 #   bash container/run_intermodule.sh --dry-run   # print the podman commands, launch nothing
 #   bash container/run_intermodule.sh             # launch both legs, detached
-#   bash container/run_intermodule.sh --smoke     # validate first (foreground, ~4 threads)
+#   bash container/run_intermodule.sh --smoke     # validate first (foreground, ~15-30 min)
 #   bash container/run_intermodule.sh --only r1   # substring filter on the job name
 #
 # WHY NOT run_local.sh: that launcher bind-mounts only runs/, so it would run against the image's
@@ -87,8 +87,10 @@ fi
 # validation step is one short command instead of a dozen pasted flags — a wrapped paste of the
 # long form silently mangles the backslash continuations and podman then sees a bare `-e`.
 if [[ $SMOKE -eq 1 ]]; then
-  SCPUS="${CPUS_SMOKE:-4}"
-  echo "[smoke] gross_intermodule_r1 at ${SCPUS} threads (foreground; several minutes, DEM build first)"
+  SCPUS="${CPUS_SMOKE:-8}"
+  echo "[smoke] gross_intermodule_r1 at ${SCPUS} threads — the smoke now builds the REAL"
+  echo "        production circuit (C=10, d_init=12, ~418k mechanisms) on tiny budgets,"
+  echo "        so expect ~15-30 min, not seconds. Foreground; DEM build comes first."
   # `set -e` would abort before RC is read, so the failure diagnostic below would never print.
   set +e
   podman run --rm -t \
@@ -101,7 +103,7 @@ if [[ $SMOKE -eq 1 ]]; then
       --config experiments/configs/gross_intermodule_r1.yaml --smoke --cpus "${SCPUS}"
   RC=$?
   set -e
-  OUT="runs/framework/bb144/intermodule_r1_smoke/result.npz"
+  OUT="runs/framework/bb144/inter_module_smoke/result.npz"
   if [[ $RC -eq 0 && -f "$OUT" ]]; then
     echo "[smoke] PASS — ${OUT} exists. Safe to launch."
   else

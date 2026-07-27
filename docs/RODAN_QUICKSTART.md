@@ -88,7 +88,7 @@ DEM build alone is several minutes.
 bash container/run_intermodule.sh --smoke
 ```
 
-**PASS** = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists.
+**PASS** = `runs/framework/bb144/inter_module_smoke/result.npz` exists.
 
 Watch `podman stats` while it runs. Measured peak is **9.0 GB per job** (~18 GB for the pair), so
 the manifest's 64G has ~7x headroom — but nothing here enforces a cap, so an OOM would take down

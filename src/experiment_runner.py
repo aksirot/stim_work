@@ -903,6 +903,22 @@ def main(argv: Optional[List[str]] = None) -> None:
                               mw_decimate=cfg.mw_decimate, mw_decimate_max_odd=cfg.mw_decimate_max_odd,
                               mw_search_rounds=cfg.mw_search_rounds,
                               noise_channel=cfg.noise_channel, ablate_channel=cfg.ablate_channel,
+                              # Carry every CIRCUIT-SHAPING key. A smoke exists to exercise the
+                              # SAME circuit as production on tiny budgets; budgets are shots/
+                              # weights/n_p, and nothing else may differ. Omitting these silently
+                              # reverted them to the dataclass defaults, so an lpu_* or
+                              # inter_module smoke validated a DIFFERENT circuit than the config
+                              # asked for — e.g. lpu_include_memory_obs defaults True, which made
+                              # the inter-module smoke raise NotImplementedError for a feature its
+                              # config had explicitly disabled.
+                              p_ref=cfg.p_ref, p_meas_factor=cfg.p_meas_factor,
+                              rounds=cfg.rounds,
+                              lpu_C=cfg.lpu_C, lpu_d_init=cfg.lpu_d_init,
+                              lpu_operators=cfg.lpu_operators,
+                              lpu_idle_noise=cfg.lpu_idle_noise,
+                              lpu_include_memory_obs=cfg.lpu_include_memory_obs,
+                              lpu_shift=cfg.lpu_shift,
+                              p_coupler_factor=cfg.p_coupler_factor,
                               outdir=cfg.outdir)
             cfg = sm
     elif args.smoke:

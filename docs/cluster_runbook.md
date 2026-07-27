@@ -373,7 +373,7 @@ and must not be divided by core count again.
    The `src/` mount is REQUIRED here for the same reason the launcher has it: without it the
    smoke runs the image's BAKED code, which predates the builder, and dies on an import error
    that reads like a circuit bug.
-   PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. Watch RSS while it runs
+   PASS = `runs/framework/bb144/inter_module_smoke/result.npz` exists. Watch RSS while it runs
    (`podman stats`): there is no scheduler to enforce a memory cap, so an OOM here takes down
    whatever else shares the box, not just this job.
 4. Dry-run the launcher: `bash container/run_intermodule.sh --dry-run` — exactly two podman
