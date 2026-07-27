@@ -1542,6 +1542,101 @@ def _ub_cross_support(adapter: AdapterGraph, k: int, offset_b: int) -> List[int]
     ]
 
 
+# Adapter ancilla layout (base = 2 * N_TOTAL_QUBITS = 756):
+#   [base + 0  .. base + 21]  22 bridge Bell-check ancillas (2 per bridge k)
+#   [base + 22 .. base + 31]  10 cross-module U_B Z-check ancillas
+N_ADAPTER_ANC = 2 * 11 + 10               # 32
+ADAPTER_RECORDS = 11 + 10                 # 21 logical adapter checks / round
+
+
+def _adapter_anc(adapter_base: int) -> Tuple[List[Tuple[int, int]], List[int]]:
+    """(bridge_bell_pairs, ub_ancillas) absolute ancilla indices for the adapter.
+    bridge_bell_pairs[k] = (anc_A, anc_B) for bridge k; ub_ancillas[k] for U_B k."""
+    pairs = [(adapter_base + 2 * k, adapter_base + 2 * k + 1) for k in range(11)]
+    ub = [adapter_base + 22 + k for k in range(10)]
+    return pairs, ub
+
+
+def build_adapter_cycle(
+    circuit: stim.Circuit,
+    error_model: ErrorModel,
+    adapter: AdapterGraph,
+    p_coupler: float,
+    offset_b: int,
+    adapter_base: int,
+    idle_pool: Optional[List[int]] = None,
+) -> None:
+    """Append ONE code-code adapter round joining modules A (frame 0) and B
+    (frame offset_b). Two check families, all cross-module operations carrying
+    the l-coupler / Bell-pair rate `p_coupler` (via _append_noise) rather than
+    the in-module gate rate:
+
+      * 11 BRIDGE Bell checks — "identify" bridge qubit A^k with B^k. Reuses the
+        build_full_lpu_cycle Bell-prep pattern: two ancillas per bridge, the
+        A-side in the |+⟩ frame, B-side prepared by a Bell CX; each ancilla then
+        couples to its module's bridge qubit via `adapter.bridge_coupling_gate`
+        (U1: CZ default / CX). The Bell CHECK is the XOR of the two records — the
+        individual records each carry a fresh Bell bit per round, so detectors
+        must pair them (as in build_full_lpu_cycle's v_groups).
+
+      * 10 cross-module U_B Z-checks — one ancilla each, CX(edge→anc) over the
+        four-edge support {A_top, B_top, bridge_k, bridge_{k+1}} (see
+        _ub_cross_support / AdapterGraph U2).
+
+    Record order (ADAPTER_RECORDS logical checks -> 32 raw records): for k=0..10
+    [bridge_A^k, bridge_B^k]; then k=0..9 [U_B^k].
+    """
+    p = error_model.p_phys
+    pm = error_model.p_meas
+    pairs, ub_anc = _adapter_anc(adapter_base)
+    gate = adapter.bridge_coupling_gate
+
+    # ---- 11 bridge Bell checks ----
+    all_bridge_anc = [q for pr in pairs for q in pr]
+    circuit.append("R", all_bridge_anc)
+    _append_noise(circuit, "X_ERROR", all_bridge_anc, p_coupler)
+    _append_idle(circuit, idle_pool, set(all_bridge_anc), p)
+    # |+⟩ on the A-side ancillas; B-side prepared by the Bell CX below.
+    a_side = [pr[0] for pr in pairs]
+    circuit.append("H", a_side)
+    _append_noise(circuit, "DEPOLARIZE1", a_side, p_coupler)
+    # Bell-pair prep (before any data gate): CX(anc_A -> anc_B).
+    bell_prep = [q for pr in pairs for q in pr]
+    circuit.append("CX", bell_prep)
+    _append_noise(circuit, "DEPOLARIZE2", bell_prep, p_coupler)
+    _append_idle(circuit, idle_pool, set(bell_prep), p)
+    # Couple each side to its module's bridge qubit (U1 gate).
+    couple: List[int] = []
+    for k, (aA, aB) in enumerate(pairs):
+        bq = adapter.bridge_eqs[k]
+        couple += [aA, bq, aB, bq + offset_b]
+    circuit.append(gate, couple)
+    _append_noise(circuit, "DEPOLARIZE2", couple, p_coupler)
+    _append_idle(circuit, idle_pool, set(couple), p)
+    # Back to Z frame; measure both sides in X basis (records XOR'd downstream).
+    circuit.append("H", all_bridge_anc)
+    _append_noise(circuit, "DEPOLARIZE1", all_bridge_anc, p_coupler)
+    _append_noise(circuit, "X_ERROR", all_bridge_anc, p_coupler)
+    circuit.append("M", all_bridge_anc)
+    _append_idle(circuit, idle_pool, set(all_bridge_anc), p)
+
+    # ---- 10 cross-module U_B Z-checks (single ancilla each) ----
+    circuit.append("R", ub_anc)
+    _append_noise(circuit, "X_ERROR", ub_anc, p_coupler)
+    _append_idle(circuit, idle_pool, set(ub_anc), p)
+    ub_flat: List[int] = []
+    for k in range(10):
+        anc = ub_anc[k]
+        for eq in _ub_cross_support(adapter, k, offset_b):
+            ub_flat += [eq, anc]                # CX(edge -> anc): Z-parity
+    circuit.append("CX", ub_flat)
+    _append_noise(circuit, "DEPOLARIZE2", ub_flat, p_coupler)
+    _append_idle(circuit, idle_pool, set(ub_flat), p)
+    _append_noise(circuit, "X_ERROR", ub_anc, p_coupler)
+    circuit.append("M", ub_anc)
+    _append_idle(circuit, idle_pool, set(ub_anc), p)
+
+
 def _op_vec(L_part: List[Tuple[int, int]],
             R_part: List[Tuple[int, int]]) -> np.ndarray:
     """Length-144 GF(2) support vector of a monomial-list Pauli operator."""
