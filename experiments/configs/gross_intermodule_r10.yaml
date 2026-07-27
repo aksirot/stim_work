@@ -27,7 +27,12 @@ mw_use_symmetry: false
 mw_max_trials: 500
 mw_workers: 16
 
-weights_range: [1, 900]     # PLACEHOLDER — freeze from the idle-ON sizing probe (r=10 raises mu); freeze before launch
+weights_range: [1, 1742]    # FROZEN 2026-07-27 from the idle-ON sizing probe at the production
+                            # geometry (C=10, d_init=12, idle_noise=true, p_coupler_factor=10):
+                            # N_expanded=4737210, q_base=3.34e-4 -> mu(1e-4)=31.7, mu(5e-3)=1582.8,
+                            # w_hi = ceil(mu_max + 4*sqrt(mu_max)) = 1742. Higher than the r=1 leg's
+                            # 1674, as expected: r=10 adds coupler mass. The old [1,900] PLACEHOLDER
+                            # stopped short of the p_hi mass at w~1583.
 weight_stride: 6
 adaptive: true
 adaptive_failures: 20

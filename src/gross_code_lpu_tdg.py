@@ -2868,6 +2868,7 @@ def build_joint_x1x1_circuit(
     p_coupler: Optional[float] = None,
     include_memory_observables: bool = False,
     idle_noise: bool = False,
+    close_cycles: bool = True,
 ) -> stim.Circuit:
     """Gross-to-gross INTER-MODULE joint measurement of X̄₁(A)⊗X̄₁(B) via the
     code-code adapter (Tour de Gross arXiv:2506.03094). Structurally the X̄₁
@@ -2890,6 +2891,14 @@ def build_joint_x1x1_circuit(
     p_coupler: the l-coupler / Bell-pair rate on all cross-module + Bell ops
     (default = p_phys, i.e. the paper-faithful "equally faulty" baseline). Use
     p_coupler = r·p_phys with integer r to study Bell-pair fidelity.
+
+    close_cycles: emit the terminal Z-cycle closure detectors [2/12,u,C] (the two
+    modules' 5 U_l cycles) and [17,k,C] (the 10 cross-module U_B checks), each
+    XORing the last merged round's cycle record against its edge readouts — the
+    "all cycles satisfy ∏ m_e = +1" boundary of build_joint_pauli_circuit. Without
+    them the final merged round's Z-type cycle information is discarded. The X-type
+    bridge Bell checks have no analogue (a Z-basis edge readout cannot cancel them);
+    they terminate by entering obs 0. Pass False to reproduce the pre-fix circuit.
 
     NOTE: idle_noise and include_memory_observables are first-pass stubs
     (idle_pool threading through build_lpu_cycle + the merged-graph correction
@@ -3051,6 +3060,23 @@ def build_joint_x1x1_circuit(
         zB_recs = [trk.rec(zB + s), trk.rec(last['zB'] + s)]
         zB_recs += [trk.rec(edge_rec[e + OFF]) for e in aug.deformation_z.get(s, [])]
         circuit.append("DETECTOR", zB_recs, [9, s, 0])
+    # Z-type cycle closure — "all cycles should satisfy ∏ m_e = +1": cycle(C-1) ⊕
+    # the XOR of its edge readouts (mirrors build_joint_pauli_circuit's [2,u,C]).
+    # Without these the last merged round's cycle information is simply discarded.
+    # Only the Z-type checks can close this way; the X-type bridge Bell checks
+    # cannot be cancelled against a Z-basis edge readout, so they have no analogue.
+    if close_cycles:
+        for u_i, u in enumerate(aug.active_cycle_indices):
+            recs = [trk.rec(last['uA'] + u_i)]
+            recs += [trk.rec(edge_rec[e]) for e in CYCLE_EDGES[u]]
+            circuit.append("DETECTOR", recs, [2, u_i, C])
+            recs = [trk.rec(last['uB'] + u_i)]
+            recs += [trk.rec(edge_rec[e + OFF]) for e in CYCLE_EDGES[u]]
+            circuit.append("DETECTOR", recs, [12, u_i, C])
+        for k in range(10):
+            recs = [trk.rec(last['ad'] + 22 + k)]
+            recs += [trk.rec(edge_rec[e]) for e in _ub_cross_support(adapter, k, OFF)]
+            circuit.append("DETECTOR", recs, [17, k, C])
     pxA, pzA, pxB, pzB = xA, zA, xB, zB
 
     # ---- d_init trailing bare rounds ----
