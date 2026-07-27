@@ -175,9 +175,100 @@ Blocked on derive_lpu_layout at (12,12). First job = sizing probe, then mirror W
 is a different experiment: TWO separate [[144,12,12]] modules joined by the code-code adapter.
 That one is READY TO SUBMIT — see "Wave 6i" below. This double-gross section is still blocked.
 
+
+---
+
+## Wave 5b — LPU boost pass (deeper shots)      submit day: ____________
+Jobs: gross_lpu_idle_boost, gross_automorphism_boost, gross_lpu_y1_boost (48c/96h, 32/48/64G).
+Pinned SHA: `____________________` (fill at submit: `git rev-parse HEAD`)
+
+Purpose: the Wave-5 runs capped at `adaptive_shots_max: 3000`, so every zero-failure bin is
+bounded only at the rule-of-three limit 3/3000 ≈ 1e-3. This pass re-samples at a deeper cap to
+push that floor toward 1e-6, and coarsens idle's stride from 1 to 3 so the budget buys depth
+rather than breadth. Boosts are NEW configs at seed 43 in their OWN `*_boost` outdirs, pooled
+with the parents downstream — the completed runs are never touched.
+
+**Caps are per campaign and are NOT interchangeable.** `run_is_sweep` checkpoints per WEIGHT with
+no intra-bin save, so a bin that cannot finish inside one walltime never lands: every requeue
+restarts it and the job burns the allocation on one weight, silently and forever. Each cap is
+sized so the worst bin is ~1/4 of the 96 h wall at 48 cores.
+
+**rodan has NO SCHEDULER** (no `sbatch`/`srun`) and is a SHARED 96-core box — discovered
+2026-07-27. `experiments/slurm/submit_lpu_boost.sh` is therefore unusable there; launch with
+`bash container/run_lpu_boost.sh` instead (detached podman, `CPUS=8` per job). Note
+`container/run_local.sh` will NOT work: it mounts only `runs/`, so it would run against the
+image's baked configs and never see the boost files.
+
+Budget: 8 threads/job x 3 jobs = 24 of 96 cores (25%). Caps were cut 10x from the SLURM-era
+values to keep the wall near 5 d at that footprint.
+
+| campaign     | onset w0 | s/shot @8c | cap     | stride | worst bin | floor 3/T | run @8c |
+|--------------|----------|------------|---------|--------|-----------|-----------|---------|
+| idle         | 39       | 0.153      | 300,000 | 1 -> 3 | ~14.9 h   | 1.0e-5    | ~4.6 d  |
+| automorphism | 69       | 2.24       | 20,000  | 4 -> 8 | ~12.4 h   | 1.5e-4    | ~3.5 d  |
+| Y1           | 25       | 0.531      | 100,000 | 6      | ~17.2 h   | 3.0e-5    | ~4.9 d  |
+
+The per-bin-must-fit-in-one-walltime rule below drove the ORIGINAL (SLURM) caps. With no
+scheduler there is no walltime kill, so it no longer binds — but per-weight checkpointing still
+matters: a killed container resumes from `spectrum.json` losing at most one bin.
+
+Boost strides are COARSER than the parents' and must stay a MULTIPLE of them, so every deep bin
+lands exactly on a parent bin and pools additively. This costs no grid resolution — the parents
+already sampled the finer grid, so the pooled spectrum keeps it; the boost only chooses which of
+those bins get the deep budget.
+
+Do NOT trim the window to the low-f bins: cost by failure-rate band is 0.1-1.9% above f=1e-2 and
+70-96% in the sub-onset capped bins (f<1e-4), because the adaptive rule spends 20/f shots and a
+high-f bin costs ~40. The cheap high-f bins also bootstrap the descending sweep's predictor —
+`predict_failure_fraction` uses only 0<f<1 points, so a window starting at f~1e-2 gives the first
+bin ~20 shots, it measures 0, and the "only zero points" branch then returns 1e-12 and sends the
+NEXT bin to shots_max even where 4000 shots would do. Trimming makes the run slower, not faster.
+
+The automorphism's cap is 15x smaller than idle's for a physical reason worth remembering: the
+bins that hit the cap are always the SUB-ONSET ones (above the onset, adaptive stops early on the
+20-failure target and the cap never binds), and decode cost climbs steeply with fault weight
+because RelayBP needs more legs on a dense syndrome. The automorphism has the steepest spectrum
+of the three (gamma1 = 13.9) so it survives to w=69 before failing at all, and every shot up
+there costs ~2.24 s vs 0.53 s for Y1 at ITS onset of w=25. Its robustness is exactly what makes
+its floor expensive to measure. Rates measured 2026-07-27: idle from a local probe (0.153 s/shot
+at w=40, 8 threads), the other two from their own prod logs.
+
+0. Preconditions
+   - [ ] Wave-5 parents complete (`runs/framework/bb144/{lpu_idle,automorphism,joint_pauli}`)
+   - [ ] `python -m pytest -q` green at the pinned SHA
+   - [ ] configs load: `python -c "from experiment_runner import load_config; [load_config(p) for p in __import__('pathlib').Path('experiments/configs').glob('gross_*_boost.yaml')]"`
+1. 15-minute compute-node smoke of the LARGEST (Y1, 64G is the least-tested figure):
+   ```
+   srun --cpus-per-task=4 --mem=16G --time=00:20:00 \
+     python -m experiment_runner --config experiments/configs/gross_lpu_y1_boost.yaml --smoke --cpus 4
+   ```
+   PASS = `runs/framework/bb144/joint_pauli_boost_smoke/result.npz` exists.
+2. Dry-run — verify EXACTLY three entries, cpus/time/mem as in the table:
+   ```
+   bash experiments/slurm/submit_lpu_boost.sh --dry-run
+   ```
+3. Submit: `bash experiments/slurm/submit_lpu_boost.sh`
+4. Monitor: `squeue -u $USER`; logs `tail -f runs/slurm/gross_*_boost_*.out`.
+   **idle and the automorphism are expected to TIME OUT once** — that is planned, not a failure.
+   Re-run the same line to resume (per-weight checkpoints lose at most one bin). Never edit a
+   config while its job is live: the guard at `experiment_runner.py:642` aborts the resume on any
+   weights_plan/seed change.
+5. Pull results home: `rsync -av cluster:stim_work/runs/framework/ runs/cluster/framework/`
+6. Close: pool each boost with its parent and confirm the floor actually moved.
+   ```python
+   from lambda_analysis import load_run, pool_spectra, fill_spectrum, rw_stats, zero_bin_fraction
+   for op in ["lpu_idle", "automorphism", "joint_pauli"]:
+       a, b = load_run(f"runs/framework/bb144/{op}"), load_run(f"runs/cluster/framework/bb144/{op}_boost")
+       s = fill_spectrum(pool_spectra(a.spectrum, b.spectrum))
+       print(op, rw_stats(s, 1e-3), zero_bin_fraction(s))
+   ```
+   PASS = `pool_spectra` does not raise (identical n_expanded/q_base/p_ref = same circuit, the
+   validity condition for pooling), zero-bin fraction drops, and the p=1e-3 headroom shrinks by
+   roughly the cap ratio. Then re-run `notebooks/tour_de_gross/wave5_lpu_ops_report.ipynb`
+   against the pooled spectra.
+
 ## Wave 6i — gross-to-gross inter-module X̄₁⊗X̄₁   submit day: ____________
-Jobs: gross_intermodule_r1, gross_intermodule_r10 (48c/96h/64G each). Branch
-`wave6-intermodule`; code ready at `48059e3d` (pushed to origin AND lps).
+Jobs: gross_intermodule_r1, gross_intermodule_r10. Branch `wave6-intermodule` (merged to main).
 Pinned SHA: `____________________` (fill at submit: `git rev-parse HEAD`)
 
 Distinct from "Wave 6 — double-gross LPU" above: this is TWO [[144,12,12]] modules (A frame 0,
@@ -185,6 +276,21 @@ B frame 378) Bell-coupled by the Tour de Gross code-code adapter, benchmarking X
 r1 = paper-faithful "all connections equally faulty"; r10 = the paper's flagged "couplers ~10×
 worse". Technique II dropped (`[IS, I]`) — `compute_distance` is unreliable on these deformed
 non-CSS circuits.
+
+**⚠️ NO SCHEDULER ON RODAN.** Per Wave 5b above, rodan has no `sbatch`/`srun` and is a SHARED
+96-core box. The manifest entry (48c/96h/64G) and `submit.sh --only intermodule` therefore apply
+ONLY on a real SLURM cluster — on rodan, launch via detached podman as Wave 5b does. **No
+`container/run_intermodule.sh` exists yet**: it is a two-line addition to the
+`container/run_lpu_boost.sh` pattern (same env-var thread capping, same `experiments/` + `runs/`
+mounts with `:Z`, same `--dry-run`/`--only` flags), swapping the three `launch` lines for
+    launch im_r1  experiments/configs/gross_intermodule_r1.yaml
+    launch im_r10 experiments/configs/gross_intermodule_r10.yaml
+Write that launcher BEFORE submit day. Do NOT use `container/run_local.sh` — it mounts only
+`runs/` and would run the image's baked configs, never seeing these two.
+
+**SHARED-BOX BUDGET — check before launching.** Wave 5b already plans 24 of 96 cores (3 jobs ×
+8 threads) for ~5 days. Two inter-module jobs at CPUS=8 add another 16, for 40/96 (42%) if both
+waves run concurrently. Confirm who else is on the box first, and stagger if needed.
 
 0. Preconditions (all DONE 2026-07-27 unless noted):
    - [x] E1 (p=0 determinism), E2 (obs0 = MPP ref), E4 (DEM+decoder) green
@@ -194,37 +300,37 @@ non-CSS circuits.
    - [x] `weights_range` FROZEN from the idle-ON sizing probe: r1 [1,1674], r10 [1,1742].
          The old [1,900] placeholder stopped short of the p_hi mass at w≈1518-1583.
    - [x] tests/test_lpu_circuits.py 18 passed
-   - [ ] Wave-6i manifest block uncommented (it ships COMMENTED; do NOT reorder anything above)
-   - [ ] step 2 smoke passed — **the 64G is an UNTESTED ESTIMATE, do not skip it**
+   - [ ] `container/run_intermodule.sh` written (see above)
+   - [ ] step 2 smoke passed — **memory is an UNTESTED ESTIMATE, do not skip it**
 1. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
-2. 15-minute compute-node smoke. This circuit is bb288-class (418354 mechanisms, 10903
-   detectors at production geometry) and the DEM build ALONE took ~400-800s locally, so this
-   step is what validates the 64G and the walltime before you commit 96 h:
+2. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
+   geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
+   footprint and the per-shot rate before you commit days of shared-box time:
    ```
-   srun --cpus-per-task=4 --mem=64G --time=00:20:00 \
-     python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
-       --smoke --cpus 4
+   podman run --rm -e OMP_NUM_THREADS=4 -e RAYON_NUM_THREADS=4      -v "$PWD/experiments:/opt/stim_work/experiments:Z"      -v "$PWD/runs:/opt/stim_work/runs:Z" -w /opt/stim_work      localhost/stim-work-qec:latest      python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml        --smoke --cpus 4
    ```
-   PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. If it OOMs, raise mem
-   in the manifest BEFORE submitting — a 64G OOM at hour 40 loses the allocation.
-3. Dry-run — verify EXACTLY two entries print (48c/96:00:00/64G):
-   ```
-   bash experiments/slurm/submit.sh --only intermodule --dry-run
-   ```
-4. Submit: `bash experiments/slurm/submit.sh --only intermodule`
+   PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. Watch RSS while it runs
+   (`podman stats`): there is no scheduler to enforce a memory cap, so an OOM here takes down
+   whatever else shares the box, not just this job.
+3. Dry-run the launcher: `bash container/run_intermodule.sh --dry-run` — exactly two podman
+   commands, threads as budgeted.
+4. Launch: `bash container/run_intermodule.sh`. Watch with `podman ps` / `podman logs -f im_r1`.
+   Resume after a kill: `podman rm <name>` then re-run with `--only <name>` — `run_is_sweep`
+   checkpoints per weight, losing at most one bin. Never edit a config while its job is live:
+   the guard at `experiment_runner.py:642` aborts the resume on any weights_plan/seed change.
 5. Independent parallel job — the large-T f(w) confirmation. At T=400 the local result only
    BOUNDS the floor at ~2.5e-3, which is ABOVE the ~5e-4-class floor the campaign configs
-   reference; T=10000 closes that gap. Chunked, checkpointed per weight, and resumable (re-run
-   the same line after a walltime kill; a larger --T tops up rather than restarting):
+   reference; T=10000 closes that gap. Chunked, checkpointed per weight, and resumable (a larger
+   --T tops up rather than restarting):
    ```
-   srun --cpus-per-task=48 --mem=64G --time=12:00:00 \
-     python experiments/tour_de_gross/failure_spectrum_probe.py \
-       --op inter_module --weights 1 2 3 4 5 6 --T 10000 --workers 48 \
-       --out runs/framework/bb144/fw_inter_largeT
+   python experiments/tour_de_gross/failure_spectrum_probe.py      --op inter_module --weights 1 2 3 4 5 6 --T 10000 --workers 8      --out runs/framework/bb144/fw_inter_largeT
    # baseline to compare against — NEVER compare against zero:
    #   ... --op y1 --T 10000 --out runs/framework/bb144/fw_y1_largeT
    ```
-6. Close: f(w) for inter_module within Poisson error of the y1 baseline at every weight, and
+   Budget `--workers` against whatever the box has left; it is pure CPU and will take everything
+   you give it.
+6. Pull results home: `rsync -av rodan:stim_work/runs/framework/ runs/cluster/framework/`
+7. Close: f(w) for inter_module within Poisson error of the y1 baseline at every weight, and
    the IS spectra land inside the frozen weight blocks (no mass piled at w_hi).
 
 KNOWN GAP (not a launch blocker): `lpu_include_memory_obs: false` — the K=23 merged-graph

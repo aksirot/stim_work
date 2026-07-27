@@ -1,0 +1,57 @@
+# Wave-5 BOOST pass: gross-code idle (bare gross code memory, tdg convention).
+#
+# Boost convention (frozen 2026-07-13, see the campaign memory): a boost is a NEW config at a NEW
+# seed writing to its OWN outdir, pooled with the parent downstream via lambda_analysis.pool_spectra
+# — never an in-place edit of a completed run. run_is_sweep's guard (experiment_runner.py:642)
+# aborts on any weights_plan/seed change against an existing checkpoint, and resolved_outdir keys
+# off `experiment` (not `label`), so `outdir` MUST be set explicitly here.
+#
+# WHAT CHANGES vs gross_lpu_idle.yaml:
+#   seed 42 -> 43              independent draws, so the two spectra pool additively
+#   weight_stride 1 -> 3       228 -> 76 bins; the freed budget goes into shots/bin (gap-fill in
+#                              lambda_analysis.fill_spectrum covers the skipped weights)
+#   adaptive_shots_max 3e3 -> 3e5    zero-bin floor 3/3000=1e-3 -> 3/3e5=1.0e-5
+#   techniques [II,IS,I] -> [IS,I]   D=10 / w0=5 / f0*=4.8e-15 are already established by the
+#                              parent run (identical circuit); re-running the L(D) sweep here
+#                              would cost days for a known answer. pin_onset stays false.
+#
+# SIZING: rate measured 2026-07-27, 0.153 s/shot at w=40 on 8 threads (0.094 at w=20, 0.211 at
+# w=60). At 8 cores: 3e5 shots = ~14.9 h for the worst bin, ~4.6 d for the whole run.
+#
+# The cap was 3e6 while this targeted a SLURM cluster, where run_is_sweep's per-WEIGHT checkpoint
+# (no intra-bin save) means a bin that cannot finish inside one walltime never lands — every
+# requeue restarts it from zero, so the cap had to satisfy shots_max * s_per_shot < walltime.
+# rodan turned out to have NO scheduler (no sbatch/srun) and to be a SHARED 96-core box, so that
+# constraint is gone and the binding one is politeness: 8 cores/job x 3 jobs = 25% of the box.
+# Caps were cut 10x to keep the wall near 5 d at that footprint. The floor still improves 100x
+# over the parent run's 3/3000 ~ 1e-3. Per-weight checkpointing still protects a killed container.
+#
+# adaptive_stop_zero_bins stays 3 — REQUIRED at this cap. It is what terminates the descending
+# sweep; raising shots_max 1000x also drops the zero-bin threshold 1000x, so without the stop rule
+# the sweep would keep descending into full-budget bins indefinitely.
+label: gross_lpu_idle_boost
+code_name: bb144
+experiment: lpu_idle
+decoder_name: relay
+techniques: [IS, I]
+outdir: runs/framework/bb144/lpu_idle_boost
+seed: 43
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+rounds: 12
+lpu_idle_noise: true
+ansatz_model: f5
+pin_onset: false
+
+relay_num_sets: 20
+relay_stop_nconv: 5
+
+weights_range: [1, 228]
+weight_stride: 3
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 300000
+adaptive_stop_zero_bins: 3
