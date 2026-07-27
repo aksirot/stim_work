@@ -163,9 +163,28 @@ matches() {
   return 1
 }
 
+FAILED_LEGS=()
+
 launch() {  # name  config-path
   local name="$1" cfg="$2"
   matches "$name" || return 0
+
+  # A container RECORD survives its process, so a leg that died still owns its name and
+  # `podman run --name` refuses with "name is already in use". Resolve it here rather than
+  # making the operator clean up by hand — but never disturb a leg that is actually running.
+  local existing=""
+  set +e
+  existing=$(podman ps -a --filter "name=^${name}$" --format '{{.Status}}' 2>/dev/null | head -1)
+  set -e
+  if [[ -n "$existing" ]]; then
+    if [[ "$existing" == Up* ]]; then
+      echo "[skip]   ${name} is ALREADY RUNNING (${existing}) — leaving it alone"
+      return 0
+    fi
+    echo "[reuse]  removing stale ${name} (${existing}); it resumes from its checkpoint"
+    podman rm "$name" >/dev/null 2>&1 || true
+  fi
+
   local cmd=( podman run -d --name "$name"
     -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
     -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
@@ -176,12 +195,36 @@ launch() {  # name  config-path
     -w /opt/stim_work "${IMAGE}"
     python -m experiment_runner --config "${cfg}" --cpus "${CPUS}" )
   echo "[launch] ${name}  (threads=${CPUS})  cfg=${cfg}"
-  if [[ $DRY -eq 1 ]]; then printf '    %q ' "${cmd[@]}"; echo; else "${cmd[@]}"; fi
+  if [[ $DRY -eq 1 ]]; then
+    printf '    %q ' "${cmd[@]}"; echo
+  else
+    # One leg failing must NOT abort the other: under set -e a non-zero podman run here
+    # killed the script, so a stale im_r1 name silently cost us im_r10 as well.
+    set +e
+    "${cmd[@]}"
+    local rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      echo "[error]  ${name} failed to start (exit ${rc})" >&2
+      FAILED_LEGS+=("$name")
+    fi
+  fi
+  # MUST end on success: a trailing `[[ ... ]] && {...}` returns 1 when the test is false,
+  # which under set -e aborts the whole script after the FIRST leg launches fine. That is
+  # the fourth set -e trap in this file; end every function here with an explicit return 0.
+  return 0
 }
 
 launch im_r1  experiments/configs/gross_intermodule_r1.yaml
 launch im_r10 experiments/configs/gross_intermodule_r10.yaml
 
 echo
+if [[ ${#FAILED_LEGS[@]} -gt 0 ]]; then
+  echo "[run_intermodule] ${#FAILED_LEGS[@]} leg(s) FAILED to start: ${FAILED_LEGS[*]}" >&2
+  echo "[run_intermodule] the others (if any) are running; fix and re-run with --only <name>" >&2
+fi
 echo "[run_intermodule] watch:  podman ps ; podman logs -f im_r1 ; podman stats"
-echo "[run_intermodule] resume: podman rm <name> && bash container/run_intermodule.sh --only <name>"
+echo "[run_intermodule] resume: re-run this script — a stale container name is cleared"
+echo "[run_intermodule]         automatically; a RUNNING leg is left untouched."
+[[ ${#FAILED_LEGS[@]} -gt 0 ]] && exit 1
+exit 0
