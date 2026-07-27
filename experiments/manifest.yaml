@@ -244,3 +244,13 @@ configs:
   #   cpus: 16
   #   time: "24:00:00"
   #   mem: "16G"
+
+  # ---- Wave 6: gross-to-gross inter-module X1(A)xX1(B) (commented until memory-obs + weights_range freeze) ----
+  # - path: experiments/configs/gross_intermodule_r1.yaml
+  #   cpus: 48
+  #   time: "96:00:00"
+  #   mem: "64G"
+  # - path: experiments/configs/gross_intermodule_r10.yaml
+  #   cpus: 48
+  #   time: "96:00:00"
+  #   mem: "64G"
