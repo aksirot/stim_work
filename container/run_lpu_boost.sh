@@ -36,7 +36,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 IMAGE="${QEC_IMAGE:-localhost/stim-work-qec:latest}"
-MOUNT_OPT="${MOUNT_OPT-:Z}"         # SELinux relabel; rodan NEEDS this (denies the mount without it)
+MOUNT_OPT="${MOUNT_OPT-:z}"         # SELinux relabel. LOWERCASE z = SHARED label: these
+                                    # launchers start MULTIPLE containers over the SAME
+                                    # src//experiments//runs mounts. Uppercase :Z applies a
+                                    # PRIVATE unshared label, so the second container
+                                    # RELABELS the volume and REVOKES the first one's
+                                    # access mid-run -- it dies with ModuleNotFoundError on
+                                    # code that existed seconds earlier. Set MOUNT_OPT= to
+                                    # disable relabelling on a non-SELinux node.
 CPUS="${CPUS:-8}"                   # threads per job — see the shared-box budget above
 mkdir -p runs/framework
 

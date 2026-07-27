@@ -59,7 +59,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 IMAGE="${QEC_IMAGE:-localhost/stim-work-qec:latest}"
-MOUNT_OPT="${MOUNT_OPT-:Z}"         # SELinux relabel; rodan NEEDS this (denies the mount without it)
+MOUNT_OPT="${MOUNT_OPT-:z}"         # SELinux relabel. LOWERCASE z = SHARED label: these
+                                    # launchers start MULTIPLE containers over the SAME
+                                    # src//experiments//runs mounts. Uppercase :Z applies a
+                                    # PRIVATE unshared label, so the second container
+                                    # RELABELS the volume and REVOKES the first one's
+                                    # access mid-run -- it dies with ModuleNotFoundError on
+                                    # code that existed seconds earlier. Set MOUNT_OPT= to
+                                    # disable relabelling on a non-SELinux node.
 CPUS="${CPUS:-24}"                  # threads per job — 2 x 24 = 48 = half the box; see header
 mkdir -p runs/framework
 
@@ -94,7 +101,7 @@ print('ok')" 2>&1)
     echo "  Common causes:" >&2
     echo "    * repo not on main / too old  -> git rev-parse --short HEAD; git pull --ff-only origin main" >&2
     echo "    * image missing               -> podman images | grep stim-work-qec" >&2
-    echo "    * SELinux relabel refused     -> retry with MOUNT_OPT= (drops the :Z suffix)" >&2
+    echo "    * SELinux relabel refused     -> retry with MOUNT_OPT= (drops the :z suffix)" >&2
     echo "  Not launching." >&2
     exit 1
   fi
