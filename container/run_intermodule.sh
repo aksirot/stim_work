@@ -137,8 +137,15 @@ fi
 # moment you disconnect — a multi-day unattended run would silently die at logout. Warn (do not
 # block: the answer depends on site policy, and per-weight checkpointing makes a death recoverable).
 if command -v loginctl >/dev/null 2>&1; then
+  # set +e is ESSENTIAL: `grep` returns 1 when it matches nothing (the normal case —
+  # KillUserProcesses is usually commented out), pipefail propagates that through the
+  # pipeline, and set -e then kills the script HERE, silently, after the preflight has
+  # already printed OK and before anything launches. That is precisely the bug this block
+  # shipped with. Any command substitution in this script needs the same guard.
+  set +e
   LINGER=$(loginctl show-user "$USER" --property=Linger 2>/dev/null | cut -d= -f2)
-  KILL=$(grep -sE '^ *KillUserProcesses' /etc/systemd/logind.conf | tail -1 | cut -d= -f2 | tr -d ' ')
+  KILL=$(grep -sE '^ *KillUserProcesses' /etc/systemd/logind.conf 2>/dev/null | tail -1 | cut -d= -f2 | tr -d ' ')
+  set -e
   if [[ "$LINGER" != "yes" && "${KILL:-no}" == "yes" ]]; then
     echo "[warn] Linger=$LINGER and KillUserProcesses=$KILL — these containers will be KILLED"
     echo "       when you log out. Before an unattended run: loginctl enable-linger $USER"
