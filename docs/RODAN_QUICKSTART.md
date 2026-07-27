@@ -90,6 +90,11 @@ bash container/run_intermodule.sh --smoke
 
 **PASS** = `runs/framework/bb144/inter_module_smoke/result.npz` exists.
 
+Takes **~3 minutes** at 8 threads. **Expect `0/20` failures in every bin and a
+`ansatz fit failed ... all-zero spectrum` WARN** — the smoke samples w=2..10, far below
+the onset (~w=100), so an empty spectrum there is correct. It is not an error, and the
+script prints an explicit PASS line when it is genuinely fine.
+
 Watch `podman stats` while it runs. Measured peak is **9.0 GB per job** (~18 GB for the pair), so
 the manifest's 64G has ~7x headroom — but nothing here enforces a cap, so an OOM would take down
 whatever else shares the box, not just your job.

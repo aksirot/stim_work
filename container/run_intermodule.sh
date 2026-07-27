@@ -88,9 +88,11 @@ fi
 # long form silently mangles the backslash continuations and podman then sees a bare `-e`.
 if [[ $SMOKE -eq 1 ]]; then
   SCPUS="${CPUS_SMOKE:-8}"
-  echo "[smoke] gross_intermodule_r1 at ${SCPUS} threads — the smoke now builds the REAL"
-  echo "        production circuit (C=10, d_init=12, ~418k mechanisms) on tiny budgets,"
-  echo "        so expect ~15-30 min, not seconds. Foreground; DEM build comes first."
+  echo "[smoke] gross_intermodule_r1 at ${SCPUS} threads — builds the REAL production"
+  echo "        circuit (C=10, d_init=12, ~418k mechanisms) on tiny budgets. ~3 min at 8"
+  echo "        threads (measured): the DEM build dominates, the w=2..10 sweep is cheap."
+  echo "        EXPECTED: 0 failures in every bin and a \"ansatz fit failed ... all-zero"
+  echo "        spectrum\" WARN — w=2..10 sits far below the onset (~w=100). Not an error."
   # `set -e` would abort before RC is read, so the failure diagnostic below would never print.
   set +e
   podman run --rm -t \
