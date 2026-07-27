@@ -1026,9 +1026,14 @@ def build_lpu_cycle(
     half: HalfLPU,
     first_round: bool,
     branch: str,
+    idle_pool: Optional[List[int]] = None,
 ) -> None:
     """
     Append ONE LPU syndrome round to `circuit`.
+
+    idle_pool: if given, inactive pool qubits pick up DEPOLARIZE1(p_phys) per
+    sub-layer (fail-fast idle model); None (default) preserves the original
+    no-idle convention used by the standalone X̄₁/Z̄₁ builders.
 
     Branch X1 (X̄₁ measurement):
       - Vertex checks are X-type (product = X̄₁).  Edges deform Z-checks.
@@ -1069,16 +1074,19 @@ def build_lpu_cycle(
         reset_ancilla=True,
         skip_x_checks=skip_x,
         skip_z_checks=skip_z,
+        idle_pool=idle_pool,
     )
 
     # Step 2: Vertex checks
     v_qs = [VERTEX_QUBIT[k] for k in half.active_vertex_keys]
     circuit.append("R", v_qs)
     _append_noise(circuit, "X_ERROR", v_qs, pm)
+    _append_idle(circuit, idle_pool, set(v_qs), p)
     if branch == 'X1':
         # X-type vertex check: H + CNOT(check→data,edges) + H + M
         circuit.append("H", v_qs)
         _append_noise(circuit, "DEPOLARIZE1", v_qs, p)
+        _append_idle(circuit, idle_pool, set(v_qs), p)
         for key in half.active_vertex_keys:
             check_q = VERTEX_QUBIT[key]
             targets: List[int] = []
@@ -1093,8 +1101,10 @@ def build_lpu_cycle(
             if targets:
                 circuit.append("CX", targets)
                 _append_noise(circuit, "DEPOLARIZE2", targets, p)
+                _append_idle(circuit, idle_pool, set(targets), p)
         circuit.append("H", v_qs)
         _append_noise(circuit, "DEPOLARIZE1", v_qs, p)
+        _append_idle(circuit, idle_pool, set(v_qs), p)
     else:
         # Z-type vertex check: CNOT(data,edges → check) + M
         for key in half.active_vertex_keys:
@@ -1111,8 +1121,10 @@ def build_lpu_cycle(
             if targets:
                 circuit.append("CX", targets)
                 _append_noise(circuit, "DEPOLARIZE2", targets, p)
+                _append_idle(circuit, idle_pool, set(targets), p)
     _append_noise(circuit, "X_ERROR", v_qs, pm)
     circuit.append("M", v_qs)
+    _append_idle(circuit, idle_pool, set(v_qs), p)
 
     # Step 3: Cycle checks
     cycle_qs: List[int] = []
@@ -1126,12 +1138,15 @@ def build_lpu_cycle(
                 cycle_cnots.append((eq, cq))
         circuit.append("R", cycle_qs)
         _append_noise(circuit, "X_ERROR", cycle_qs, pm)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
         flat = [q for pair in cycle_cnots for q in pair]
         if flat:
             circuit.append("CX", flat)
             _append_noise(circuit, "DEPOLARIZE2", flat, p)
+            _append_idle(circuit, idle_pool, set(flat), p)
         _append_noise(circuit, "X_ERROR", cycle_qs, pm)
         circuit.append("M", cycle_qs)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
     else:
         # X-type cycle check: H + CNOT(cycle_anc → edge) + H + M
         for c_idx in half.active_cycle_indices:
@@ -1141,16 +1156,21 @@ def build_lpu_cycle(
                 cycle_cnots.append((cq, eq))
         circuit.append("R", cycle_qs)
         _append_noise(circuit, "X_ERROR", cycle_qs, pm)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
         circuit.append("H", cycle_qs)
         _append_noise(circuit, "DEPOLARIZE1", cycle_qs, p)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
         flat = [q for pair in cycle_cnots for q in pair]
         if flat:
             circuit.append("CX", flat)
             _append_noise(circuit, "DEPOLARIZE2", flat, p)
+            _append_idle(circuit, idle_pool, set(flat), p)
         circuit.append("H", cycle_qs)
         _append_noise(circuit, "DEPOLARIZE1", cycle_qs, p)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
         _append_noise(circuit, "X_ERROR", cycle_qs, pm)
         circuit.append("M", cycle_qs)
+        _append_idle(circuit, idle_pool, set(cycle_qs), p)
 
 
 # ---------------------------------------------------------------------------
@@ -2876,10 +2896,8 @@ def build_joint_x1x1_circuit(
     recipe come after E1/E2/E3 pin the stabilizer structure and U1).
     """
     assert C >= 1 and d_init >= 1
-    if idle_noise:
-        raise NotImplementedError("idle_noise for inter-module pending E1-E3")
     if include_memory_observables:
-        raise NotImplementedError("memory observables for inter-module pending E1-E3")
+        raise NotImplementedError("memory observables for inter-module pending (K=23 recipe)")
     p = error_model.p_phys
     pm = error_model.p_meas
     if p_coupler is None:
@@ -2888,6 +2906,10 @@ def build_joint_x1x1_circuit(
     BASE = 2 * OFF
     aug = _half_lpu_l_inter()
     adapter = _adapter_graph('CX')   # U1: X-type identification commutes with the X-vertex checks
+    # idle pools (fail-fast idle model): built in the A frame; module B reuses them via _shift.
+    bare_pool = list(range(N_GROSS)) if idle_noise else None
+    lpu_pool = list(range(N_TOTAL_QUBITS)) if idle_noise else None
+    merged_pool = list(range(BASE + N_ADAPTER_ANC)) if idle_noise else None
 
     circuit = stim.Circuit()
     trk = _MeasTracker()
@@ -2911,26 +2933,28 @@ def build_joint_x1x1_circuit(
     # ---- helper: one BB syndrome round for BOTH modules (A direct, B shifted) ----
     def bb_round_both(em_round: ErrorModel):
         build_bb_syndrome_cycle(circuit, em_round, reset_data=False,
-                                reset_ancilla=True)
+                                reset_ancilla=True, idle_pool=bare_pool)
         xA = trk.add(N_C); zA = trk.add(N_C)
         scratch = stim.Circuit()
         build_bb_syndrome_cycle(scratch, em_round, reset_data=False,
-                                reset_ancilla=True)
+                                reset_ancilla=True, idle_pool=bare_pool)
         circuit.__iadd__(_shift_circuit(scratch, OFF))
         xB = trk.add(N_C); zB = trk.add(N_C)
         return xA, zA, xB, zB
 
     def lpu_round_both():
-        build_lpu_cycle(circuit, error_model, aug, first_round=False, branch='X1')
+        build_lpu_cycle(circuit, error_model, aug, first_round=False, branch='X1',
+                        idle_pool=lpu_pool)
         xA = trk.add(N_C); zA = trk.add(N_C)
         vA = trk.add(12); uA = trk.add(5)
         scratch = stim.Circuit()
-        build_lpu_cycle(scratch, error_model, aug, first_round=False, branch='X1')
+        build_lpu_cycle(scratch, error_model, aug, first_round=False, branch='X1',
+                        idle_pool=lpu_pool)
         circuit.__iadd__(_shift_circuit(scratch, OFF))
         xB = trk.add(N_C); zB = trk.add(N_C)
         vB = trk.add(12); uB = trk.add(5)
         build_adapter_cycle(circuit, error_model, adapter, p_coupler,
-                            offset_b=OFF, adapter_base=BASE)
+                            offset_b=OFF, adapter_base=BASE, idle_pool=merged_pool)
         ad = trk.add(N_ADAPTER_ANC)   # 32 raw: (bridgeA,bridgeB)*11 then U_B*10
         return dict(xA=xA, zA=zA, vA=vA, uA=uA, xB=xB, zB=zB, vB=vB, uB=uB, ad=ad)
 
