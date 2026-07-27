@@ -132,6 +132,25 @@ structure). Fix in progress. The weight-1 degeneracy scan (full DEM, zero
 same-syndrome-different-action groups) is now a MANDATORY Wave-5 gate for every new
 operation builder — it catches informationally-unresolvable floors that no decoder probe
 can attribute.
+**COMPANION GATE, added 2026-07-27 (Wave 6): the low-weight failure spectrum f(w), via
+`experiments/tour_de_gross/failure_spectrum_probe.py`.** The degeneracy scan catches
+*undetectable* faults; f(w) catches *miscorrected* ones, and it is the only cheap check that
+is p-INDEPENDENT. **A Monte-Carlo LER at p_ref cannot distinguish a broken observable from a
+circuit operating far above threshold** — Wave 6 lost a session to exactly this, recording the
+inter-module X̄₁⊗X̄₁ circuit as having an "obs0 floor" at LER≈0.40 (p=5e-3) when the DEM says
+it sees ~106 expected faults/shot there and the *known-good* Y1 baseline floors just as hard
+(0.35 idle-off / 0.51 idle-on) at the same point. The same circuit decodes to LER 0.020±0.010
+at p=1e-3. Rules:
+- Always compare a new builder against a VALIDATED baseline, **never against zero**. Y1 itself
+  is nonzero at w=3,4,6 (1,1,3 per 400) — decoder miscorrection at the cheap 20-set relay, not
+  undetectable errors. "Matches the baseline" is the standard.
+- Quote the resolution. At T samples/weight, f(w) resolves to ~1/T, so a clean 0/T *bounds* the
+  floor at ~1/T; it does not disprove one. Ruling out the ~5e-4-class floor the configs
+  reference needs T≳10000 ⇒ a cluster job (the probe is chunked, checkpointed per weight, and
+  tops up on re-run with a larger --T).
+- Before trusting a distance number, note `shortest_graphlike_error` skips hyperedge/gauge
+  errors and `compute_distance` returns a spurious 1 on these deformed non-CSS circuits. When
+  MC, graphlike distance, and f(w) disagree, **f(w) is the one to trust.**
 **Symmetry (2026-07-22):** the IDLE circuit is the bare gross code and keeps full Z12xZ6
 toric symmetry (72 perms; build_circuit_translation_perms works with l=12,m=6) — so
 gross_lpu_idle.yaml uses mw_use_symmetry:true. REQUIRED, not just faster: idle has even
