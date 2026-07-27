@@ -15,6 +15,11 @@
 # NOTE: lpu_include_memory_obs is false until the K=23 merged-graph observable recipe lands.
 # NOTE: weights_range is the idle-ON sizing probe (mu(5e-3) with idle noise on); freeze before launch.
 label: gross_intermodule_r1
+# EXPLICIT outdir: without it BOTH legs default to runs/framework/bb144/inter_module
+# (resolved_outdir uses the EXPERIMENT name, and both legs share experiment: inter_module),
+# so the two jobs race for one checkpoint and whichever loses aborts on the
+# weights_plan guard — r1 [1,1674] vs r10 [1,1742] can never agree.
+outdir: runs/framework/bb144/inter_module_r1
 code_name: bb144
 experiment: inter_module
 decoder_name: relay

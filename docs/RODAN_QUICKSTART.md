@@ -131,6 +131,11 @@ this box and you never have to think about it again.
 If it turns out they do NOT survive, nothing is lost: `run_is_sweep` checkpoints after every
 weight, so re-running the launcher resumes and loses at most one bin.
 
+> **If only ONE container is running**, the two legs collided on a shared output directory.
+> Fixed by pinning an explicit `outdir` per leg (`inter_module_r1` / `inter_module_r10`); if you
+> launched before that fix, stop the survivor, `rm -rf runs/framework/bb144/inter_module` (the
+> mixed-state directory), pull, and relaunch both.
+
 ## 6. Watch
 
 ```bash
