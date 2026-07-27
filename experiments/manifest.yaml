@@ -245,7 +245,15 @@ configs:
   #   time: "24:00:00"
   #   mem: "16G"
 
-  # ---- Wave 6: gross-to-gross inter-module X1(A)xX1(B) (commented until memory-obs + weights_range freeze) ----
+  # ---- Wave 6i: gross-to-gross inter-module X1(A)xX1(B) ----
+  # READY TO SUBMIT as of 2026-07-27 (see docs/cluster_runbook.md "Wave 6i"). Both original
+  # gates are cleared: weights_range FROZEN (r1 [1,1674], r10 [1,1742]) and the recorded obs0
+  # "floor" RETIRED as a misdiagnosis (f(w) matches the validated Y1 baseline; it was
+  # above-threshold operation, not a broken observable). Left COMMENTED deliberately so
+  # uncommenting stays a submit-time decision, and because the 64G is an UNTESTED ESTIMATE for
+  # a 418k-mechanism circuit — run the runbook's 15-minute smoke first.
+  # NOT a blocker: lpu_include_memory_obs is false (K=23 merged-graph recipe not landed), so
+  # these runs carry the operator observables only.
   # - path: experiments/configs/gross_intermodule_r1.yaml
   #   cpus: 48
   #   time: "96:00:00"

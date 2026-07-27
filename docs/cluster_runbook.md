@@ -170,3 +170,62 @@ shrinks ~26x. Random-trial phase unchanged.
 
 ## Wave 6 — double-gross LPU                    open-ended
 Blocked on derive_lpu_layout at (12,12). First job = sizing probe, then mirror W1b→W3.
+**NAME COLLISION — read this.** This section is the LPU on the two-gross CODE ((l,m)=(12,12),
+20v/32e/11-cycle U_l, paper tex lines 218-240). It is NOT the branch `wave6-intermodule`, which
+is a different experiment: TWO separate [[144,12,12]] modules joined by the code-code adapter.
+That one is READY TO SUBMIT — see "Wave 6i" below. This double-gross section is still blocked.
+
+## Wave 6i — gross-to-gross inter-module X̄₁⊗X̄₁   submit day: ____________
+Jobs: gross_intermodule_r1, gross_intermodule_r10 (48c/96h/64G each). Branch
+`wave6-intermodule`; code ready at `48059e3d` (pushed to origin AND lps).
+Pinned SHA: `____________________` (fill at submit: `git rev-parse HEAD`)
+
+Distinct from "Wave 6 — double-gross LPU" above: this is TWO [[144,12,12]] modules (A frame 0,
+B frame 378) Bell-coupled by the Tour de Gross code-code adapter, benchmarking X̄₁(A)⊗X̄₁(B).
+r1 = paper-faithful "all connections equally faulty"; r10 = the paper's flagged "couplers ~10×
+worse". Technique II dropped (`[IS, I]`) — `compute_distance` is unreliable on these deformed
+non-CSS circuits.
+
+0. Preconditions (all DONE 2026-07-27 unless noted):
+   - [x] E1 (p=0 determinism), E2 (obs0 = MPP ref), E4 (DEM+decoder) green
+   - [x] the recorded "obs0 floor" blocker RETIRED — it was above-threshold operation, not a
+         broken observable. f(w) per 400, w=1..6: Y1 baseline 0,0,1,1,0,3 / inter pre-fix
+         0,0,0,0,2,0 / inter+closure 0,0,1,0,1,2. Statistically indistinguishable ⇒ no floor.
+   - [x] `weights_range` FROZEN from the idle-ON sizing probe: r1 [1,1674], r10 [1,1742].
+         The old [1,900] placeholder stopped short of the p_hi mass at w≈1518-1583.
+   - [x] tests/test_lpu_circuits.py 18 passed
+   - [ ] Wave-6i manifest block uncommented (it ships COMMENTED; do NOT reorder anything above)
+   - [ ] step 2 smoke passed — **the 64G is an UNTESTED ESTIMATE, do not skip it**
+1. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
+2. 15-minute compute-node smoke. This circuit is bb288-class (418354 mechanisms, 10903
+   detectors at production geometry) and the DEM build ALONE took ~400-800s locally, so this
+   step is what validates the 64G and the walltime before you commit 96 h:
+   ```
+   srun --cpus-per-task=4 --mem=64G --time=00:20:00 \
+     python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
+       --smoke --cpus 4
+   ```
+   PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. If it OOMs, raise mem
+   in the manifest BEFORE submitting — a 64G OOM at hour 40 loses the allocation.
+3. Dry-run — verify EXACTLY two entries print (48c/96:00:00/64G):
+   ```
+   bash experiments/slurm/submit.sh --only intermodule --dry-run
+   ```
+4. Submit: `bash experiments/slurm/submit.sh --only intermodule`
+5. Independent parallel job — the large-T f(w) confirmation. At T=400 the local result only
+   BOUNDS the floor at ~2.5e-3, which is ABOVE the ~5e-4-class floor the campaign configs
+   reference; T=10000 closes that gap. Chunked, checkpointed per weight, and resumable (re-run
+   the same line after a walltime kill; a larger --T tops up rather than restarting):
+   ```
+   srun --cpus-per-task=48 --mem=64G --time=12:00:00 \
+     python experiments/tour_de_gross/failure_spectrum_probe.py \
+       --op inter_module --weights 1 2 3 4 5 6 --T 10000 --workers 48 \
+       --out runs/framework/bb144/fw_inter_largeT
+   # baseline to compare against — NEVER compare against zero:
+   #   ... --op y1 --T 10000 --out runs/framework/bb144/fw_y1_largeT
+   ```
+6. Close: f(w) for inter_module within Poisson error of the y1 baseline at every weight, and
+   the IS spectra land inside the frozen weight blocks (no mass piled at w_hi).
+
+KNOWN GAP (not a launch blocker): `lpu_include_memory_obs: false` — the K=23 merged-graph
+memory-observable recipe has not landed, so these runs carry the operator observables only.
