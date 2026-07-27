@@ -4,6 +4,10 @@ Manual-submission runbook for the campaign plan of 2026-07-13 (plan:
 `~/.claude/plans/delegated-conjuring-kite.md`; predecessor context in the repo memory).
 Each wave is a copy-paste section: run top to bottom, check every box before `sbatch`.
 
+> **Launching Wave 6i on rodan? Use [`RODAN_QUICKSTART.md`](RODAN_QUICKSTART.md)** — the
+> copy-paste sequence (fetch/checkout, verify, box check, smoke, launch, resume, pull) with
+> a troubleshooting table. This runbook keeps the rationale and the per-wave gates.
+
 **Global rules**
 - Always submit through `bash experiments/slurm/submit.sh --only <substring> [--dry-run]` —
   never bare `submit.sh` (it would resubmit earlier waves against live outdirs).
@@ -353,14 +357,29 @@ and must not be divided by core count again.
    Mount `tests/` as well as `src/`/`experiments/`, or you test the image's baked copies instead
    of the checkout you just pulled:
    ```
-   podman run --rm      -v "$PWD/src:/opt/stim_work/src:Z"      -v "$PWD/experiments:/opt/stim_work/experiments:Z"      -v "$PWD/tests:/opt/stim_work/tests:Z"      -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work      localhost/stim-work-qec:latest python -m pytest -q
+   podman run --rm \
+     -v "$PWD/src:/opt/stim_work/src:Z" \
+     -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
+     -v "$PWD/tests:/opt/stim_work/tests:Z" \
+     -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
+     localhost/stim-work-qec:latest python -m pytest -q
    ```
 3. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
    footprint and the per-shot rate before you commit days of shared-box time:
    ```
-   podman run --rm -e OMP_NUM_THREADS=4 -e RAYON_NUM_THREADS=4      -v "$PWD/experiments:/opt/stim_work/experiments:Z"      -v "$PWD/runs:/opt/stim_work/runs:Z" -w /opt/stim_work      localhost/stim-work-qec:latest      python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml        --smoke --cpus 4
+   podman run --rm -e OMP_NUM_THREADS=4 -e RAYON_NUM_THREADS=4 \
+     -v "$PWD/src:/opt/stim_work/src:Z" \
+     -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
+     -v "$PWD/runs:/opt/stim_work/runs:Z" \
+     -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
+     localhost/stim-work-qec:latest \
+     python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
+       --smoke --cpus 4
    ```
+   The `src/` mount is REQUIRED here for the same reason the launcher has it: without it the
+   smoke runs the image's BAKED code, which predates the builder, and dies on an import error
+   that reads like a circuit bug.
    PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. Watch RSS while it runs
    (`podman stats`): there is no scheduler to enforce a memory cap, so an OOM here takes down
    whatever else shares the box, not just this job.

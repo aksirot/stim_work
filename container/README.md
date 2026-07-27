@@ -1,5 +1,10 @@
 # Podman container for the fail-fast QEC framework
 
+> **Running the Wave-6i inter-module campaign on rodan?** Follow
+> [`../docs/RODAN_QUICKSTART.md`](../docs/RODAN_QUICKSTART.md) instead of this file — rodan has
+> no scheduler and no host python, and the shipped image predates that campaign's builder, so
+> its commands differ from the generic ones below.
+
 Runs `experiment_runner` (importance sampling + Technique II/I on BB/gross codes) inside a
 self-contained OCI image, so the cluster needs only `podman` — no conda env, no Rust toolchain,
 no `pip install` on the login node.
