@@ -132,6 +132,25 @@ structure). Fix in progress. The weight-1 degeneracy scan (full DEM, zero
 same-syndrome-different-action groups) is now a MANDATORY Wave-5 gate for every new
 operation builder — it catches informationally-unresolvable floors that no decoder probe
 can attribute.
+**COMPANION GATE, added 2026-07-27 (Wave 6): the low-weight failure spectrum f(w), via
+`experiments/tour_de_gross/failure_spectrum_probe.py`.** The degeneracy scan catches
+*undetectable* faults; f(w) catches *miscorrected* ones, and it is the only cheap check that
+is p-INDEPENDENT. **A Monte-Carlo LER at p_ref cannot distinguish a broken observable from a
+circuit operating far above threshold** — Wave 6 lost a session to exactly this, recording the
+inter-module X̄₁⊗X̄₁ circuit as having an "obs0 floor" at LER≈0.40 (p=5e-3) when the DEM says
+it sees ~106 expected faults/shot there and the *known-good* Y1 baseline floors just as hard
+(0.35 idle-off / 0.51 idle-on) at the same point. The same circuit decodes to LER 0.020±0.010
+at p=1e-3. Rules:
+- Always compare a new builder against a VALIDATED baseline, **never against zero**. Y1 itself
+  is nonzero at w=3,4,6 (1,1,3 per 400) — decoder miscorrection at the cheap 20-set relay, not
+  undetectable errors. "Matches the baseline" is the standard.
+- Quote the resolution. At T samples/weight, f(w) resolves to ~1/T, so a clean 0/T *bounds* the
+  floor at ~1/T; it does not disprove one. Ruling out the ~5e-4-class floor the configs
+  reference needs T≳10000 ⇒ a cluster job (the probe is chunked, checkpointed per weight, and
+  tops up on re-run with a larger --T).
+- Before trusting a distance number, note `shortest_graphlike_error` skips hyperedge/gauge
+  errors and `compute_distance` returns a spurious 1 on these deformed non-CSS circuits. When
+  MC, graphlike distance, and f(w) disagree, **f(w) is the one to trust.**
 **Symmetry (2026-07-22):** the IDLE circuit is the bare gross code and keeps full Z12xZ6
 toric symmetry (72 perms; build_circuit_translation_perms works with l=12,m=6) — so
 gross_lpu_idle.yaml uses mw_use_symmetry:true. REQUIRED, not just faster: idle has even
@@ -151,3 +170,62 @@ shrinks ~26x. Random-trial phase unchanged.
 
 ## Wave 6 — double-gross LPU                    open-ended
 Blocked on derive_lpu_layout at (12,12). First job = sizing probe, then mirror W1b→W3.
+**NAME COLLISION — read this.** This section is the LPU on the two-gross CODE ((l,m)=(12,12),
+20v/32e/11-cycle U_l, paper tex lines 218-240). It is NOT the branch `wave6-intermodule`, which
+is a different experiment: TWO separate [[144,12,12]] modules joined by the code-code adapter.
+That one is READY TO SUBMIT — see "Wave 6i" below. This double-gross section is still blocked.
+
+## Wave 6i — gross-to-gross inter-module X̄₁⊗X̄₁   submit day: ____________
+Jobs: gross_intermodule_r1, gross_intermodule_r10 (48c/96h/64G each). Branch
+`wave6-intermodule`; code ready at `48059e3d` (pushed to origin AND lps).
+Pinned SHA: `____________________` (fill at submit: `git rev-parse HEAD`)
+
+Distinct from "Wave 6 — double-gross LPU" above: this is TWO [[144,12,12]] modules (A frame 0,
+B frame 378) Bell-coupled by the Tour de Gross code-code adapter, benchmarking X̄₁(A)⊗X̄₁(B).
+r1 = paper-faithful "all connections equally faulty"; r10 = the paper's flagged "couplers ~10×
+worse". Technique II dropped (`[IS, I]`) — `compute_distance` is unreliable on these deformed
+non-CSS circuits.
+
+0. Preconditions (all DONE 2026-07-27 unless noted):
+   - [x] E1 (p=0 determinism), E2 (obs0 = MPP ref), E4 (DEM+decoder) green
+   - [x] the recorded "obs0 floor" blocker RETIRED — it was above-threshold operation, not a
+         broken observable. f(w) per 400, w=1..6: Y1 baseline 0,0,1,1,0,3 / inter pre-fix
+         0,0,0,0,2,0 / inter+closure 0,0,1,0,1,2. Statistically indistinguishable ⇒ no floor.
+   - [x] `weights_range` FROZEN from the idle-ON sizing probe: r1 [1,1674], r10 [1,1742].
+         The old [1,900] placeholder stopped short of the p_hi mass at w≈1518-1583.
+   - [x] tests/test_lpu_circuits.py 18 passed
+   - [ ] Wave-6i manifest block uncommented (it ships COMMENTED; do NOT reorder anything above)
+   - [ ] step 2 smoke passed — **the 64G is an UNTESTED ESTIMATE, do not skip it**
+1. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
+2. 15-minute compute-node smoke. This circuit is bb288-class (418354 mechanisms, 10903
+   detectors at production geometry) and the DEM build ALONE took ~400-800s locally, so this
+   step is what validates the 64G and the walltime before you commit 96 h:
+   ```
+   srun --cpus-per-task=4 --mem=64G --time=00:20:00 \
+     python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
+       --smoke --cpus 4
+   ```
+   PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. If it OOMs, raise mem
+   in the manifest BEFORE submitting — a 64G OOM at hour 40 loses the allocation.
+3. Dry-run — verify EXACTLY two entries print (48c/96:00:00/64G):
+   ```
+   bash experiments/slurm/submit.sh --only intermodule --dry-run
+   ```
+4. Submit: `bash experiments/slurm/submit.sh --only intermodule`
+5. Independent parallel job — the large-T f(w) confirmation. At T=400 the local result only
+   BOUNDS the floor at ~2.5e-3, which is ABOVE the ~5e-4-class floor the campaign configs
+   reference; T=10000 closes that gap. Chunked, checkpointed per weight, and resumable (re-run
+   the same line after a walltime kill; a larger --T tops up rather than restarting):
+   ```
+   srun --cpus-per-task=48 --mem=64G --time=12:00:00 \
+     python experiments/tour_de_gross/failure_spectrum_probe.py \
+       --op inter_module --weights 1 2 3 4 5 6 --T 10000 --workers 48 \
+       --out runs/framework/bb144/fw_inter_largeT
+   # baseline to compare against — NEVER compare against zero:
+   #   ... --op y1 --T 10000 --out runs/framework/bb144/fw_y1_largeT
+   ```
+6. Close: f(w) for inter_module within Poisson error of the y1 baseline at every weight, and
+   the IS spectra land inside the frozen weight blocks (no mass piled at w_hi).
+
+KNOWN GAP (not a launch blocker): `lpu_include_memory_obs: false` — the K=23 merged-graph
+memory-observable recipe has not landed, so these runs carry the operator observables only.

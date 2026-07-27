@@ -102,6 +102,24 @@ def _build_joint_pauli_circuit(cfg: "Config"):
         idle_noise=cfg.lpu_idle_noise)
 
 
+def _build_intermodule_circuit(cfg: "Config"):
+    # Gross-to-gross INTER-MODULE joint X̄₁(A)⊗X̄₁(B) via the code-code adapter.
+    # p_coupler = p_coupler_factor * p_phys is the l-coupler / Bell-pair rate; an INTEGER
+    # factor keeps every coupler DEM mechanism an exact integer multiple of q_base=p/15, so
+    # the single-parameter Technique-I expansion (importance_sampling._expand) stays valid.
+    import gross_code_lpu_tdg as tdg
+    r = cfg.p_coupler_factor
+    if abs(round(r) - r) > 1e-9:
+        print(f"[warn] p_coupler_factor={r} is not an integer; the IS expansion rounds it and "
+              f"injects O(p^2) error — prefer an integer ratio.", flush=True)
+    em = ErrorModel(p_phys=cfg.p_ref, p_meas=cfg.p_ref * cfg.p_meas_factor)
+    return tdg.build_joint_x1x1_circuit(
+        em, C=cfg.lpu_C, d_init=cfg.lpu_d_init,
+        p_coupler=cfg.p_ref * r,
+        include_memory_observables=cfg.lpu_include_memory_obs,
+        idle_noise=cfg.lpu_idle_noise)
+
+
 def _build_automorphism_circuit(cfg: "Config"):
     # Shift-automorphism benchmark (C repeated shift instructions, paper A.6 convention).
     import gross_code_lpu_tdg as tdg
@@ -119,6 +137,7 @@ CIRCUIT_BUILDERS = {
     "lpu_idle":     _build_lpu_idle_circuit,
     "automorphism": _build_automorphism_circuit,
     "joint_pauli":  _build_joint_pauli_circuit,
+    "inter_module": _build_intermodule_circuit,
 }
 
 
@@ -165,6 +184,8 @@ class Config:
     lpu_idle_noise: bool = False          # paper-faithful idle DEPOLARIZE1 in tdg builders
     lpu_include_memory_obs: bool = True   # joint_pauli: outcome + 11 commuting Z̄ memory obs
     lpu_shift: Optional[str] = None       # automorphism experiment: 'x' or 'y' (None = builder default 'y')
+    p_coupler_factor: float = 1.0         # inter_module: p_coupler = p_coupler_factor * p_phys (Bell-pair
+                                          # fidelity knob; integer keeps the Technique-I expansion exact)
     # Five-channel budget campaigns: isolate ONE channel (noise_channel) or drop one channel,
     # keeping the rest (ablate_channel = leave-one-out marginal). Mutually exclusive; applied to
     # the built circuit AFTER the experiment builder — the full-noise path (both None) returns the
