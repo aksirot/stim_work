@@ -4,6 +4,7 @@
 #
 #   bash container/run_intermodule.sh --dry-run   # print the podman commands, launch nothing
 #   bash container/run_intermodule.sh             # launch both legs, detached
+#   bash container/run_intermodule.sh --smoke     # validate first (foreground, ~4 threads)
 #   bash container/run_intermodule.sh --only r1   # substring filter on the job name
 #
 # WHY NOT run_local.sh: that launcher bind-mounts only runs/, so it would run against the image's
@@ -45,10 +46,12 @@ cd "$(dirname "$0")/.."             # repo root
 REPO="$PWD"
 
 DRY=0
+SMOKE=0
 ONLY=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
+    --smoke)   SMOKE=1; shift ;;
     --only)    [[ $# -ge 2 ]] || { echo "--only needs a substring"; exit 1; }
                ONLY+=("$2"); shift 2 ;;
     *) echo "unknown flag: $1"; exit 1 ;;
@@ -78,6 +81,34 @@ import inspect; assert 'close_cycles' in inspect.signature(f).parameters" 2>/dev
     echo "  Check the src/ bind-mount, or rebuild the image. Not launching." >&2
     exit 1
   fi
+fi
+
+# SMOKE: same mounts as the real launch, foreground, small thread count, --smoke. Exists so the
+# validation step is one short command instead of a dozen pasted flags — a wrapped paste of the
+# long form silently mangles the backslash continuations and podman then sees a bare `-e`.
+if [[ $SMOKE -eq 1 ]]; then
+  SCPUS="${CPUS_SMOKE:-4}"
+  echo "[smoke] gross_intermodule_r1 at ${SCPUS} threads (foreground; several minutes, DEM build first)"
+  # `set -e` would abort before RC is read, so the failure diagnostic below would never print.
+  set +e
+  podman run --rm -t \
+    -e "OMP_NUM_THREADS=${SCPUS}" -e "RAYON_NUM_THREADS=${SCPUS}" \
+    -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
+    -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}" \
+    -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}" \
+    -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
+    python -u -m experiment_runner \
+      --config experiments/configs/gross_intermodule_r1.yaml --smoke --cpus "${SCPUS}"
+  RC=$?
+  set -e
+  OUT="runs/framework/bb144/intermodule_r1_smoke/result.npz"
+  if [[ $RC -eq 0 && -f "$OUT" ]]; then
+    echo "[smoke] PASS — ${OUT} exists. Safe to launch."
+  else
+    echo "[smoke] FAIL — exit ${RC}; ${OUT} $( [[ -f "$OUT" ]] && echo exists || echo missing )" >&2
+    exit 1
+  fi
+  exit 0
 fi
 
 matches() {

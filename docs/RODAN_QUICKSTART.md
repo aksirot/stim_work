@@ -85,14 +85,7 @@ Validates the memory footprint and per-shot rate before committing days of share
 DEM build alone is several minutes.
 
 ```bash
-podman run --rm -e OMP_NUM_THREADS=4 -e RAYON_NUM_THREADS=4 \
-  -v "$PWD/src:/opt/stim_work/src:Z" \
-  -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
-  -v "$PWD/runs:/opt/stim_work/runs:Z" \
-  -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
-  localhost/stim-work-qec:latest \
-  python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
-    --smoke --cpus 4
+bash container/run_intermodule.sh --smoke
 ```
 
 **PASS** = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists.

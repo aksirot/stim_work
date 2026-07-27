@@ -368,15 +368,8 @@ and must not be divided by core count again.
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
    footprint and the per-shot rate before you commit days of shared-box time:
    ```
-   podman run --rm -e OMP_NUM_THREADS=4 -e RAYON_NUM_THREADS=4 \
-     -v "$PWD/src:/opt/stim_work/src:Z" \
-     -v "$PWD/experiments:/opt/stim_work/experiments:Z" \
-     -v "$PWD/runs:/opt/stim_work/runs:Z" \
-     -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work \
-     localhost/stim-work-qec:latest \
-     python -m experiment_runner --config experiments/configs/gross_intermodule_r1.yaml \
-       --smoke --cpus 4
-   ```
+   bash container/run_intermodule.sh --smoke
+```
    The `src/` mount is REQUIRED here for the same reason the launcher has it: without it the
    smoke runs the image's BAKED code, which predates the builder, and dies on an import error
    that reads like a circuit bug.
