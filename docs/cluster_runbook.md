@@ -331,7 +331,19 @@ and must not be divided by core count again.
    rootless, so it shows only YOUR containers; a colleague can be using 60 cores through their own
    podman and your `podman ps` is empty. `box_load.sh` uses loadavg and `ps`, which see all users.
    If it reports less headroom than the policy cap, launch with the smaller `CPUS` it suggests.
-2. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
+2. **Get the cluster checkout onto `main`** — do NOT just `git pull`. The Wave-1 instructions
+   above put the cluster on `bb144-split-better`, and that branch **no longer exists on either
+   remote**; a bare `git pull` there fails or silently does nothing. Everything (including this
+   campaign) is now merged to `main`:
+   ```
+   cd stim_work
+   git branch --show-current          # likely a deleted branch - expect a surprise
+   git fetch origin --prune
+   git checkout main || git checkout -b main origin/main
+   git pull --ff-only origin main     # ff-only: refuse a surprise merge on the cluster
+   git rev-parse HEAD                 # record as the pinned SHA above
+   python -m pytest -q                # must be green before launching
+   ```
 3. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
    footprint and the per-shot rate before you commit days of shared-box time:
