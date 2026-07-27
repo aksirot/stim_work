@@ -69,16 +69,33 @@ mkdir -p runs/framework
 # that the baked-src image would produce.
 if [[ $DRY -eq 0 ]]; then
   echo -n "[preflight] inter-module builder visible in the container... "
-  if podman run --rm \
+  # Capture stderr instead of discarding it: an earlier version sent it to /dev/null, so a
+  # failure printed "FAILED" and threw away the podman/python error that says WHY — leaving
+  # a silent no-launch with nothing to debug. Never suppress the diagnostic you will need.
+  # set -e aborts on a failing command substitution in an assignment, BEFORE PF_RC is read,
+  # so the whole diagnostic below would be skipped. Disable it across the capture.
+  set +e
+  PF_OUT=$(podman run --rm \
        -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
        -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
        python -c "from gross_code_lpu_tdg import build_joint_x1x1_circuit as f
-import inspect; assert 'close_cycles' in inspect.signature(f).parameters" 2>/dev/null; then
+import inspect; assert 'close_cycles' in inspect.signature(f).parameters
+print('ok')" 2>&1)
+  PF_RC=$?
+  set -e
+  if [[ $PF_RC -eq 0 ]]; then
     echo "OK"
   else
-    echo "FAILED"
-    echo "  The container cannot import build_joint_x1x1_circuit (with close_cycles)." >&2
-    echo "  Check the src/ bind-mount, or rebuild the image. Not launching." >&2
+    echo "FAILED (exit $PF_RC)"
+    echo "  The container could not import build_joint_x1x1_circuit (with close_cycles)." >&2
+    echo "  ---- podman/python said ----" >&2
+    printf '  %s\n' "$PF_OUT" >&2
+    echo "  ----------------------------" >&2
+    echo "  Common causes:" >&2
+    echo "    * repo not on main / too old  -> git rev-parse --short HEAD; git pull --ff-only origin main" >&2
+    echo "    * image missing               -> podman images | grep stim-work-qec" >&2
+    echo "    * SELinux relabel refused     -> retry with MOUNT_OPT= (drops the :Z suffix)" >&2
+    echo "  Not launching." >&2
     exit 1
   fi
 fi
