@@ -112,6 +112,25 @@ stale image fails in seconds rather than after the DEM build.
 **Footprint:** `CPUS=24` x 2 legs = **48 of 96 cores**, half the box, campaign-only.
 **Expected wall:** ~35 h per leg, both in parallel ≈ **1.5 days**.
 
+## 5b. Before you walk away (overnight runs)
+
+Rootless podman containers are children of your login session. If systemd lingering is off **and**
+logind kills user processes, they die the moment you disconnect — an unattended multi-day run would
+silently stop at logout. The launcher warns if it detects that combination. To check and fix:
+
+```bash
+loginctl show-user "$USER" --property=Linger     # want: Linger=yes
+loginctl enable-linger "$USER"                   # may need admin
+grep -s KillUserProcesses /etc/systemd/logind.conf
+```
+
+**The empirical test beats the theory** — do this once, tonight, before trusting a long run:
+launch, log out, log back in, and run `podman ps`. If both jobs are still `Up`, detachment works on
+this box and you never have to think about it again.
+
+If it turns out they do NOT survive, nothing is lost: `run_is_sweep` checkpoints after every
+weight, so re-running the launcher resumes and loses at most one bin.
+
 ## 6. Watch
 
 ```bash

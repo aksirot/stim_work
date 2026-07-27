@@ -115,6 +115,23 @@ if [[ $SMOKE -eq 1 ]]; then
   exit 0
 fi
 
+# OVERNIGHT SURVIVAL: rootless podman containers are children of your login session. If
+# systemd lingering is OFF and logind is configured to KillUserProcesses, they are killed the
+# moment you disconnect — a multi-day unattended run would silently die at logout. Warn (do not
+# block: the answer depends on site policy, and per-weight checkpointing makes a death recoverable).
+if command -v loginctl >/dev/null 2>&1; then
+  LINGER=$(loginctl show-user "$USER" --property=Linger 2>/dev/null | cut -d= -f2)
+  KILL=$(grep -sE '^ *KillUserProcesses' /etc/systemd/logind.conf | tail -1 | cut -d= -f2 | tr -d ' ')
+  if [[ "$LINGER" != "yes" && "${KILL:-no}" == "yes" ]]; then
+    echo "[warn] Linger=$LINGER and KillUserProcesses=$KILL — these containers will be KILLED"
+    echo "       when you log out. Before an unattended run: loginctl enable-linger $USER"
+    echo "       (may need admin). Or verify empirically: launch, log out, log back in, podman ps."
+  elif [[ "$LINGER" != "yes" ]]; then
+    echo "[note] Linger=${LINGER:-unknown}; KillUserProcesses=${KILL:-unset (default no)}."
+    echo "       Containers SHOULD survive logout. Confirm once: log out, back in, podman ps."
+  fi
+fi
+
 matches() {
   [[ ${#ONLY[@]} -eq 0 ]] && return 0
   local n="$1" s
