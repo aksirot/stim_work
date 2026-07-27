@@ -188,11 +188,24 @@ no intra-bin save, so a bin that cannot finish inside one walltime never lands: 
 restarts it and the job burns the allocation on one weight, silently and forever. Each cap is
 sized so the worst bin is ~1/4 of the 96 h wall at 48 cores.
 
-| campaign     | onset w0 | s/shot @48c | cap       | stride | worst bin | floor 3/T | run @48c |
-|--------------|----------|-------------|-----------|--------|-----------|-----------|----------|
-| idle         | 39       | 0.025       | 3,000,000 | 1 -> 3 | ~21 h     | 1.0e-6    | ~4.0 d   |
-| automorphism | 69       | 0.373       | 200,000   | 4 -> 8 | ~21 h     | 1.5e-5    | ~3.5 d   |
-| Y1           | 25       | 0.089       | 1,000,000 | 6      | ~25 h     | 3.0e-6    | ~3.0 d   |
+**rodan has NO SCHEDULER** (no `sbatch`/`srun`) and is a SHARED 96-core box — discovered
+2026-07-27. `experiments/slurm/submit_lpu_boost.sh` is therefore unusable there; launch with
+`bash container/run_lpu_boost.sh` instead (detached podman, `CPUS=8` per job). Note
+`container/run_local.sh` will NOT work: it mounts only `runs/`, so it would run against the
+image's baked configs and never see the boost files.
+
+Budget: 8 threads/job x 3 jobs = 24 of 96 cores (25%). Caps were cut 10x from the SLURM-era
+values to keep the wall near 5 d at that footprint.
+
+| campaign     | onset w0 | s/shot @8c | cap     | stride | worst bin | floor 3/T | run @8c |
+|--------------|----------|------------|---------|--------|-----------|-----------|---------|
+| idle         | 39       | 0.153      | 300,000 | 1 -> 3 | ~14.9 h   | 1.0e-5    | ~4.6 d  |
+| automorphism | 69       | 2.24       | 20,000  | 4 -> 8 | ~12.4 h   | 1.5e-4    | ~3.5 d  |
+| Y1           | 25       | 0.531      | 100,000 | 6      | ~17.2 h   | 3.0e-5    | ~4.9 d  |
+
+The per-bin-must-fit-in-one-walltime rule below drove the ORIGINAL (SLURM) caps. With no
+scheduler there is no walltime kill, so it no longer binds — but per-weight checkpointing still
+matters: a killed container resumes from `spectrum.json` losing at most one bin.
 
 Boost strides are COARSER than the parents' and must stay a MULTIPLE of them, so every deep bin
 lands exactly on a parent bin and pools additively. This costs no grid resolution — the parents

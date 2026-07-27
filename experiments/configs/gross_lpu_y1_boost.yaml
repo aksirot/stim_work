@@ -7,16 +7,18 @@
 #
 # WHAT CHANGES vs gross_lpu_y1.yaml:
 #   seed 42 -> 43                    independent draws for additive pooling
-#   adaptive_shots_max 3e3 -> 1e6    zero-bin floor 3/3000=1e-3 -> 3/1e6=3.0e-6
+#   adaptive_shots_max 3e3 -> 1e5    zero-bin floor 3/3000=1e-3 -> 3/1e5=3.0e-5
 #   stride stays 6, weights_range stays [1,1110]  -> every boost bin pools onto a parent bin
 #
-# SIZING: run_is_sweep checkpoints per WEIGHT with no intra-bin save, so the cap must satisfy
-# shots_max * s_per_shot < walltime or the bin never lands and every requeue restarts it. This
-# circuit's fitted onset is w0 = 25, where the parent log measured 0.531 s/shot at 8 threads —
-# far cheaper than the automorphism's onset at w=69 (2.24 s/shot), because decode cost climbs with
-# fault weight and Y1 starts failing early. At 48 cores, 0.531/6 = 0.089 s/shot => 1e6 shots =
-# ~25 h for the worst bin, inside a 96 h wall. Whole-run estimate ~3.0 d at 48 cores => should fit
-# in ONE submission; resumable if it does not.
+# SIZING: this circuit's fitted onset is w0 = 25, where the parent log measured 0.531 s/shot at
+# 8 threads — far cheaper than the automorphism's onset at w=69 (2.24 s/shot), because decode cost
+# climbs with fault weight and Y1 starts failing early. At 8 cores: 1e5 shots = ~17.2 h for the
+# worst bin, ~4.9 d for the whole run (the longest of the three).
+#
+# The cap was 1e6 while this targeted a SLURM cluster, where run_is_sweep's per-WEIGHT checkpoint
+# (no intra-bin save) means a bin that cannot finish inside one walltime never lands. rodan turned
+# out to have NO scheduler and to be a SHARED 96-core box, so the binding constraint is now
+# politeness (8 cores/job x 3 = 25% of the box) and caps were cut 10x.
 #
 # Technique II stays dropped: a single BP-OSD decode on this 212k-column full DEM runs ~1.5-2 h
 # (the parent smoke stalled at L(D) trial 6/50 after 10 h). The paper made the same call — Table 2
@@ -52,5 +54,5 @@ weight_stride: 6
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4
-adaptive_shots_max: 1000000
+adaptive_shots_max: 100000
 adaptive_stop_zero_bins: 3
