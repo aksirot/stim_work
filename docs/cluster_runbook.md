@@ -288,9 +288,11 @@ mounts with `:Z`, same `--dry-run`/`--only` flags), swapping the three `launch` 
 Write that launcher BEFORE submit day. Do NOT use `container/run_local.sh` — it mounts only
 `runs/` and would run the image's baked configs, never seeing these two.
 
-**SHARED-BOX BUDGET — check before launching.** Wave 5b already plans 24 of 96 cores (3 jobs ×
-8 threads) for ~5 days. Two inter-module jobs at CPUS=8 add another 16, for 40/96 (42%) if both
-waves run concurrently. Confirm who else is on the box first, and stagger if needed.
+**SHARED-BOX BUDGET — HALF THE BOX, campaign-only (set 2026-07-27).** `CPUS=24` × 2 jobs =
+**48 of 96 cores**. This is now the ONLY campaign running: the Wave-5b LPU boost pass is not being
+launched, so its 24 cores are not in play. Half is a deliberate self-imposed cap on a shared
+machine, not a machine limit — do not raise it to fill the box. Drop to `CPUS=16` (32/96) if
+others are on. Confirm who else is on before launching.
 
 **MEASURED COST (2026-07-27 probe, local 24-core box, C=10/d_init=12 idle ON).** Decode rate rises
 with fault weight then SATURATES — 0.44 s/shot at w=5, 0.98 at w=20, 1.51 at w=50, then flat at
@@ -304,10 +306,9 @@ two jobs is ~18 GB. Projected sweep, r1 block, stride 6 (279 bins):
 | transition, adaptive 20/f shots (w ~100-400) | 37% |
 | saturated, ~20-40 shots/bin (w > 400, ~212 bins) | 11% |
 
-**~35 h per leg at 24 cores; ~2-4 days per leg at CPUS=8**, both legs in parallel ≈ the same wall.
-That is the same class as the Wave-5b campaigns. NB the measured rate ALREADY includes Relay-BP's
-rayon parallelism across the whole box — it is not a per-core figure and must not be divided by
-core count again.
+**~35 h per leg at 24 threads ⇒ both legs in parallel ≈ 1.5 days wall** at the half-box setting.
+NB the measured rate ALREADY includes Relay-BP's rayon parallelism — it is not a per-core figure
+and must not be divided by core count again.
 
 0. Preconditions (all DONE 2026-07-27 unless noted):
    - [x] E1 (p=0 determinism), E2 (obs0 = MPP ref), E4 (DEM+decoder) green
@@ -317,10 +318,21 @@ core count again.
    - [x] `weights_range` FROZEN from the idle-ON sizing probe: r1 [1,1674], r10 [1,1742].
          The old [1,900] placeholder stopped short of the p_hi mass at w≈1518-1583.
    - [x] tests/test_lpu_circuits.py 18 passed
-   - [ ] `container/run_intermodule.sh` written (see above)
+   - [x] `container/run_intermodule.sh` written (mounts src/ — the shipped image predates the
+         builder; it also preflights the import before launching)
    - [ ] step 2 smoke passed — **memory is an UNTESTED ESTIMATE, do not skip it**
-1. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
-2. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
+1. **Check the box has room** — there is no scheduler, so nothing is tracking allocations and the
+   only truth is what is running right now:
+   ```
+   bash container/box_load.sh              # report + a recommended CPUS
+   bash container/box_load.sh --want 48    # does the half-box footprint fit?
+   ```
+   Reads the 1-min load average against `nproc`. **`podman ps` is NOT sufficient** — podman is
+   rootless, so it shows only YOUR containers; a colleague can be using 60 cores through their own
+   podman and your `podman ps` is empty. `box_load.sh` uses loadavg and `ps`, which see all users.
+   If it reports less headroom than the policy cap, launch with the smaller `CPUS` it suggests.
+2. Fast-forward the cluster checkout to the pinned SHA; `python -m pytest -q` green.
+3. Smoke it FIRST. This circuit is bb288-class (418354 mechanisms, 10903 detectors at production
    geometry) and the DEM build ALONE took ~400-800s locally, so this is what validates the memory
    footprint and the per-shot rate before you commit days of shared-box time:
    ```
@@ -329,23 +341,18 @@ core count again.
    PASS = `runs/framework/bb144/intermodule_r1_smoke/result.npz` exists. Watch RSS while it runs
    (`podman stats`): there is no scheduler to enforce a memory cap, so an OOM here takes down
    whatever else shares the box, not just this job.
-3. Dry-run the launcher: `bash container/run_intermodule.sh --dry-run` — exactly two podman
+4. Dry-run the launcher: `bash container/run_intermodule.sh --dry-run` — exactly two podman
    commands, threads as budgeted.
-4. Launch: `bash container/run_intermodule.sh`. Watch with `podman ps` / `podman logs -f im_r1`.
+5. Launch: `bash container/run_intermodule.sh`. Watch with `podman ps` / `podman logs -f im_r1`.
    Resume after a kill: `podman rm <name>` then re-run with `--only <name>` — `run_is_sweep`
    checkpoints per weight, losing at most one bin. Never edit a config while its job is live:
    the guard at `experiment_runner.py:642` aborts the resume on any weights_plan/seed change.
-5. Independent parallel job — the large-T f(w) confirmation. At T=400 the local result only
-   BOUNDS the floor at ~2.5e-3, which is ABOVE the ~5e-4-class floor the campaign configs
-   reference; T=10000 closes that gap. Chunked, checkpointed per weight, and resumable (a larger
-   --T tops up rather than restarting):
-   ```
-   python experiments/tour_de_gross/failure_spectrum_probe.py      --op inter_module --weights 1 2 3 4 5 6 --T 10000 --workers 8      --out runs/framework/bb144/fw_inter_largeT
-   # baseline to compare against — NEVER compare against zero:
-   #   ... --op y1 --T 10000 --out runs/framework/bb144/fw_y1_largeT
-   ```
-   Budget `--workers` against whatever the box has left; it is pure CPU and will take everything
-   you give it.
+**No separate large-T f(w) job is needed.** The production sweep subsumes it: the frozen block
+starts at w=1 with stride 6, and sub-onset bins run to the 3000-shot cap, so f(1) lands with
+resolution ~3.3e-4 — finer than the ~5e-4-class floor the configs reference, and measured at the
+PRODUCTION geometry rather than the C=3 validation one. `failure_spectrum_probe.py` remains the
+tool for a standalone check of a NEW builder; it is redundant once this sweep runs.
+
 6. Pull results home: `rsync -av rodan:stim_work/runs/framework/ runs/cluster/framework/`
 7. Close: f(w) for inter_module within Poisson error of the y1 baseline at every weight, and
    the IS spectra land inside the frozen weight blocks (no mass piled at w_hi).

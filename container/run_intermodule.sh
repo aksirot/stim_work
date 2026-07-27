@@ -17,15 +17,21 @@
 # src/ over it is enough; no image rebuild needed. Drop this mount only once a rebuilt image that
 # contains the builder has actually been loaded on the target box.
 #
-# SHARED-BOX BUDGET: CPUS=8 per job x 2 jobs = 16 of 96 cores (17%). If the Wave-5b boost pass is
-# also running (3 jobs x 8 = 24), the combined footprint is 40 of 96 (42%). CHECK WHO ELSE IS ON
-# THE BOX before launching; stagger the waves if the machine is busy.
+# SHARED-BOX BUDGET: CPUS=24 per job x 2 jobs = 48 of 96 cores — HALF THE BOX, deliberately, set
+# 2026-07-27. This is the only campaign running: the Wave-5b LPU boost pass is NOT being launched,
+# so its 24 cores are not in play and the whole allocation goes here. Half is a self-imposed cap on
+# a SHARED machine, not a machine limit — do not raise it to fill the box. Override for a quieter
+# or busier machine with e.g. CPUS=16. CHECK WHO ELSE IS ON before launching.
+#
+# COST (measured 2026-07-27 at the real geometry, not estimated): decode rate saturates at
+# ~1.84 s/shot from w=150 up (0.44 at w=5); onset ~w=100; 52% of the sweep is sub-onset bins
+# capped at 3000 shots. ~35 h per leg at 24 threads => BOTH LEGS IN PARALLEL ~1.5 DAYS WALL.
 #
 # MEMORY: this is the largest circuit in the campaign -- ~418k DEM mechanisms, 10903 detectors at
-# the production geometry (C=10, d_init=12, idle ON). The manifest's 64G is an UNTESTED ESTIMATE
-# and there is NO SCHEDULER HERE TO ENFORCE A CAP: an OOM takes down whatever else shares the box,
-# not just this job. Run the smoke first (see docs/cluster_runbook.md "Wave 6i" step 2) and watch
-# RSS with `podman stats` before committing to the full run.
+# the production geometry (C=10, d_init=12, idle ON). Measured peak RSS 9.0 GB per job, so ~18 GB
+# for the pair: the manifest's 64G figure has ~7x headroom and is NOT the risk it was assumed to
+# be. Still watch `podman stats` on the first run — there is no scheduler here to enforce a cap,
+# so an OOM would take down whatever else shares the box, not just this job.
 #
 # Thread capping is done with env vars, NOT podman --cpus: rootless cgroup delegation is often
 # unavailable and --cpus then errors out.
@@ -51,8 +57,28 @@ done
 
 IMAGE="${QEC_IMAGE:-localhost/stim-work-qec:latest}"
 MOUNT_OPT="${MOUNT_OPT-:Z}"         # SELinux relabel; rodan NEEDS this (denies the mount without it)
-CPUS="${CPUS:-8}"                   # threads per job — see the shared-box budget above
+CPUS="${CPUS:-24}"                  # threads per job — 2 x 24 = 48 = half the box; see header
 mkdir -p runs/framework
+
+# PREFLIGHT: the shipped image predates this builder (see the src/ mount note above). Verify the
+# mounted code actually resolves INSIDE the container before committing to a multi-minute DEM
+# build followed by an import error. Costs a couple of seconds and catches the exact failure mode
+# that the baked-src image would produce.
+if [[ $DRY -eq 0 ]]; then
+  echo -n "[preflight] inter-module builder visible in the container... "
+  if podman run --rm \
+       -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
+       -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
+       python -c "from gross_code_lpu_tdg import build_joint_x1x1_circuit as f
+import inspect; assert 'close_cycles' in inspect.signature(f).parameters" 2>/dev/null; then
+    echo "OK"
+  else
+    echo "FAILED"
+    echo "  The container cannot import build_joint_x1x1_circuit (with close_cycles)." >&2
+    echo "  Check the src/ bind-mount, or rebuild the image. Not launching." >&2
+    exit 1
+  fi
+fi
 
 matches() {
   [[ ${#ONLY[@]} -eq 0 ]] && return 0
