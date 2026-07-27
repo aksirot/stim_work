@@ -292,6 +292,23 @@ Write that launcher BEFORE submit day. Do NOT use `container/run_local.sh` — i
 8 threads) for ~5 days. Two inter-module jobs at CPUS=8 add another 16, for 40/96 (42%) if both
 waves run concurrently. Confirm who else is on the box first, and stagger if needed.
 
+**MEASURED COST (2026-07-27 probe, local 24-core box, C=10/d_init=12 idle ON).** Decode rate rises
+with fault weight then SATURATES — 0.44 s/shot at w=5, 0.98 at w=20, 1.51 at w=50, then flat at
+~1.84 from w=150 through w=1518. First failures appear between w=50 and w=150, so the onset sits
+around w~100. Peak RSS **9.0 GB for one job** — the manifest's 64G is over-provisioned, not tight;
+two jobs is ~18 GB. Projected sweep, r1 block, stride 6 (279 bins):
+
+| band | share of cost |
+|---|---|
+| sub-onset, capped at 3000 shots (w < ~100, ~17 bins) | 52% |
+| transition, adaptive 20/f shots (w ~100-400) | 37% |
+| saturated, ~20-40 shots/bin (w > 400, ~212 bins) | 11% |
+
+**~35 h per leg at 24 cores; ~2-4 days per leg at CPUS=8**, both legs in parallel ≈ the same wall.
+That is the same class as the Wave-5b campaigns. NB the measured rate ALREADY includes Relay-BP's
+rayon parallelism across the whole box — it is not a per-core figure and must not be divided by
+core count again.
+
 0. Preconditions (all DONE 2026-07-27 unless noted):
    - [x] E1 (p=0 determinism), E2 (obs0 = MPP ref), E4 (DEM+decoder) green
    - [x] the recorded "obs0 floor" blocker RETIRED — it was above-threshold operation, not a
