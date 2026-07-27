@@ -1531,14 +1531,20 @@ def _adapter_graph(bridge_coupling_gate: str = 'CZ') -> AdapterGraph:
 
 
 def _ub_cross_support(adapter: AdapterGraph, k: int, offset_b: int) -> List[int]:
-    """The 4 edge-qubit indices (merged frame) of cross-module U_B check k=0..9:
-    module-A top edge, module-B top edge, and the two Bell-coupled bridge qubits
-    (represented by module A's copies)."""
+    """Edge-qubit indices (merged frame) of cross-module U_B check k=0..9.
+
+    The identified bridge is TWO physical qubits (A^k and B^k, Bell-coupled), so
+    the cross-module square — logically weight-4 {A_top, B_top, bridge_k,
+    bridge_{k+1}} — is physically weight-6: both copies of each bridge edge.
+    Including both copies makes the Z-parity a genuine cycle in each module's
+    l-half graph (even overlap with every V_l vertex) AND gives even overlap with
+    the XX bridge Bell checks, so it commutes with both."""
+    bk, bk1 = adapter.bridge_eqs[k], adapter.bridge_eqs[k + 1]
     return [
         adapter.ub_top_eqs[k],                 # A top edge (E_l)
         adapter.ub_top_eqs[k] + offset_b,      # B top edge (E_l, mirror of V_r)
-        adapter.bridge_eqs[k],                 # bridge k   (identified pair)
-        adapter.bridge_eqs[k + 1],             # bridge k+1 (identified pair)
+        bk, bk + offset_b,                     # bridge k   : both identified copies
+        bk1, bk1 + offset_b,                   # bridge k+1 : both identified copies
     ]
 
 
@@ -2827,6 +2833,229 @@ def build_joint_pauli_circuit(
             recs = [trk.rec(f0 + int(q)) for q in np.where(w)[0]]
             recs += [trk.rec(edge_rec[e]) for e in e_list]
             circuit.append("OBSERVABLE_INCLUDE", recs, k)
+
+    return circuit
+
+
+# ---------------------------------------------------------------------------
+# Layer 8c — Inter-module joint X̄₁(A)⊗X̄₁(B) builder
+# ---------------------------------------------------------------------------
+
+def build_joint_x1x1_circuit(
+    error_model: ErrorModel,
+    C: int = 10,
+    d_init: int = 12,
+    p_coupler: Optional[float] = None,
+    include_memory_observables: bool = False,
+    idle_noise: bool = False,
+) -> stim.Circuit:
+    """Gross-to-gross INTER-MODULE joint measurement of X̄₁(A)⊗X̄₁(B) via the
+    code-code adapter (Tour de Gross arXiv:2506.03094). Structurally the X̄₁
+    half-LPU run on TWO modules at once (A frame 0, B frame N_TOTAL_QUBITS),
+    each augmented with its 11 bridge qubits, Bell-coupled by build_adapter_cycle.
+
+    Framing mirrors build_joint_pauli_circuit: |0⟩ init → noiseless MPP of
+    X̄₁(A)⊗X̄₁(B) at t=0 → noiseless encoding round → d_init noisy bare rounds →
+    edge |0⟩ init → C merged rounds [A l-cycle, B l-cycle, adapter cycle] → edge
+    Z-readout → 1 bare return + boundary → d_init trailing bare → noiseless
+    transversal Z readout.
+
+    obs 0 = MPP ⊕ the 24 V_l vertex records (12 A + 12 B) of the last round ⊕ the
+    11 bridge Bell-check records of the last round: the product of a module's 12
+    V_l X-vertex checks is X̄₁ times X on that module's 11 (uncancelled) bridge
+    edges; the bridge Bell checks (X-type identification, U1=CX) cancel those, so
+    the residual is X̄₁(A)X̄₁(B) exactly. [U1=CZ variant: the bridge edges instead
+    cancel via the return-readout m_e; E2 arbitrates which is right.]
+
+    p_coupler: the l-coupler / Bell-pair rate on all cross-module + Bell ops
+    (default = p_phys, i.e. the paper-faithful "equally faulty" baseline). Use
+    p_coupler = r·p_phys with integer r to study Bell-pair fidelity.
+
+    NOTE: idle_noise and include_memory_observables are first-pass stubs
+    (idle_pool threading through build_lpu_cycle + the merged-graph correction
+    recipe come after E1/E2/E3 pin the stabilizer structure and U1).
+    """
+    assert C >= 1 and d_init >= 1
+    if idle_noise:
+        raise NotImplementedError("idle_noise for inter-module pending E1-E3")
+    if include_memory_observables:
+        raise NotImplementedError("memory observables for inter-module pending E1-E3")
+    p = error_model.p_phys
+    pm = error_model.p_meas
+    if p_coupler is None:
+        p_coupler = p
+    OFF = N_TOTAL_QUBITS
+    BASE = 2 * OFF
+    aug = _half_lpu_l_inter()
+    adapter = _adapter_graph('CX')   # U1: X-type identification commutes with the X-vertex checks
+
+    circuit = stim.Circuit()
+    trk = _MeasTracker()
+    dataA = list(range(N_DATA))
+    dataB = [q + OFF for q in dataA]
+    circuit.append("R", dataA + dataB)
+
+    # ---- noiseless MPP reference of X̄₁(A) ⊗ X̄₁(B) (pure X, 24 qubits) ----
+    x1_supp = sorted(int(q) for q in np.where(_op_vec(P, Q))[0])
+    assert len(x1_supp) == 12
+    mpp_targets: List = [stim.target_x(x1_supp[0])]
+    for q in x1_supp[1:]:
+        mpp_targets += [stim.target_combiner(), stim.target_x(q)]
+    for q in x1_supp:
+        mpp_targets += [stim.target_combiner(), stim.target_x(q + OFF)]
+    circuit.append("MPP", mpp_targets)
+    mpp_idx = trk.add(1)
+    circuit.append("TICK")
+    _append_noise(circuit, "X_ERROR", dataA + dataB, pm)
+
+    # ---- helper: one BB syndrome round for BOTH modules (A direct, B shifted) ----
+    def bb_round_both(em_round: ErrorModel):
+        build_bb_syndrome_cycle(circuit, em_round, reset_data=False,
+                                reset_ancilla=True)
+        xA = trk.add(N_C); zA = trk.add(N_C)
+        scratch = stim.Circuit()
+        build_bb_syndrome_cycle(scratch, em_round, reset_data=False,
+                                reset_ancilla=True)
+        circuit.__iadd__(_shift_circuit(scratch, OFF))
+        xB = trk.add(N_C); zB = trk.add(N_C)
+        return xA, zA, xB, zB
+
+    def lpu_round_both():
+        build_lpu_cycle(circuit, error_model, aug, first_round=False, branch='X1')
+        xA = trk.add(N_C); zA = trk.add(N_C)
+        vA = trk.add(12); uA = trk.add(5)
+        scratch = stim.Circuit()
+        build_lpu_cycle(scratch, error_model, aug, first_round=False, branch='X1')
+        circuit.__iadd__(_shift_circuit(scratch, OFF))
+        xB = trk.add(N_C); zB = trk.add(N_C)
+        vB = trk.add(12); uB = trk.add(5)
+        build_adapter_cycle(circuit, error_model, adapter, p_coupler,
+                            offset_b=OFF, adapter_base=BASE)
+        ad = trk.add(N_ADAPTER_ANC)   # 32 raw: (bridgeA,bridgeB)*11 then U_B*10
+        return dict(xA=xA, zA=zA, vA=vA, uA=uA, xB=xB, zB=zB, vB=vB, uB=uB, ad=ad)
+
+    # ---- noiseless encoding round ----
+    noiseless = ErrorModel(p_phys=0.0, p_meas=0.0)
+    pxA, pzA, pxB, pzB = bb_round_both(noiseless)
+    circuit.append("TICK")
+    for s in range(N_C):
+        circuit.append("DETECTOR", [trk.rec(pzA + s)], [0, s, 0])
+        circuit.append("DETECTOR", [trk.rec(pzB + s)], [10, s, 0])
+
+    # ---- d_init noisy bare rounds ----
+    for r in range(1, d_init + 1):
+        xA, zA, xB, zB = bb_round_both(error_model)
+        circuit.append("TICK")
+        for s in range(N_C):
+            circuit.append("DETECTOR", [trk.rec(xA + s), trk.rec(pxA + s)], [1, s, r])
+            circuit.append("DETECTOR", [trk.rec(zA + s), trk.rec(pzA + s)], [0, s, r])
+            circuit.append("DETECTOR", [trk.rec(xB + s), trk.rec(pxB + s)], [11, s, r])
+            circuit.append("DETECTOR", [trk.rec(zB + s), trk.rec(pzB + s)], [10, s, r])
+        pxA, pzA, pxB, pzB = xA, zA, xB, zB
+
+    # ---- edge init |0⟩: active edges of both modules ----
+    edgesA = sorted(aug.active_edge_indices)
+    edgesB = [q + OFF for q in edgesA]
+    circuit.append("R", edgesA + edgesB)
+    _append_noise(circuit, "X_ERROR", edgesA + edgesB, pm)
+
+    # ---- C merged rounds ----
+    hist: List[dict] = []
+    for c in range(C):
+        rec = lpu_round_both()
+        hist.append(rec)
+        circuit.append("TICK")
+        pxa = hist[c - 1]['xA'] if c else pxA
+        pza = hist[c - 1]['zA'] if c else pzA
+        pxb = hist[c - 1]['xB'] if c else pxB
+        pzb = hist[c - 1]['zB'] if c else pzB
+        for s in range(N_C):
+            circuit.append("DETECTOR", [trk.rec(rec['xA'] + s), trk.rec(pxa + s)], [4, s, c])
+            circuit.append("DETECTOR", [trk.rec(rec['zA'] + s), trk.rec(pza + s)], [5, s, c])
+            circuit.append("DETECTOR", [trk.rec(rec['xB'] + s), trk.rec(pxb + s)], [14, s, c])
+            circuit.append("DETECTOR", [trk.rec(rec['zB'] + s), trk.rec(pzb + s)], [15, s, c])
+        if c == 0:
+            for u in range(5):
+                circuit.append("DETECTOR", [trk.rec(rec['uA'] + u)], [2, u, 0])
+                circuit.append("DETECTOR", [trk.rec(rec['uB'] + u)], [12, u, 0])
+        else:
+            pv = hist[c - 1]
+            for u in range(5):
+                circuit.append("DETECTOR", [trk.rec(rec['uA'] + u), trk.rec(pv['uA'] + u)], [2, u, c])
+                circuit.append("DETECTOR", [trk.rec(rec['uB'] + u), trk.rec(pv['uB'] + u)], [12, u, c])
+            for v in range(12):
+                circuit.append("DETECTOR", [trk.rec(rec['vA'] + v), trk.rec(pv['vA'] + v)], [3, v, c])
+                circuit.append("DETECTOR", [trk.rec(rec['vB'] + v), trk.rec(pv['vB'] + v)], [13, v, c])
+            # adapter checks: bridge Bell (pair the two raw records) + U_B
+            for k in range(11):
+                a0, a1 = rec['ad'] + 2 * k, rec['ad'] + 2 * k + 1
+                pa0, pa1 = pv['ad'] + 2 * k, pv['ad'] + 2 * k + 1
+                circuit.append("DETECTOR",
+                               [trk.rec(a0), trk.rec(a1), trk.rec(pa0), trk.rec(pa1)],
+                               [16, k, c])
+            for k in range(10):
+                circuit.append("DETECTOR",
+                               [trk.rec(rec['ad'] + 22 + k), trk.rec(pv['ad'] + 22 + k)],
+                               [17, k, c])
+
+    # ---- edge Z-readout of both modules' active edges ----
+    _append_noise(circuit, "X_ERROR", edgesA + edgesB, pm)
+    circuit.append("M", edgesA + edgesB)
+    e0 = trk.add(len(edgesA) + len(edgesB))
+    circuit.append("TICK")
+    edge_rec = {q: e0 + i for i, q in enumerate(edgesA + edgesB)}
+
+    # ---- 1 bare return cycle + boundary detectors ----
+    # The deformed Z-checks picked up Z_e during the LPU rounds; at the bare
+    # (undeformed) return their compare needs the return-readout m_e of those
+    # edges (mirrors build_joint_pauli_circuit's [6/7] boundary).
+    xA, zA, xB, zB = bb_round_both(error_model)
+    circuit.append("TICK")
+    last = hist[C - 1]
+    for s in range(N_C):
+        circuit.append("DETECTOR", [trk.rec(xA + s), trk.rec(last['xA'] + s)], [6, s, 0])
+        zA_recs = [trk.rec(zA + s), trk.rec(last['zA'] + s)]
+        zA_recs += [trk.rec(edge_rec[e]) for e in aug.deformation_z.get(s, [])]
+        circuit.append("DETECTOR", zA_recs, [7, s, 0])
+        circuit.append("DETECTOR", [trk.rec(xB + s), trk.rec(last['xB'] + s)], [8, s, 0])
+        zB_recs = [trk.rec(zB + s), trk.rec(last['zB'] + s)]
+        zB_recs += [trk.rec(edge_rec[e + OFF]) for e in aug.deformation_z.get(s, [])]
+        circuit.append("DETECTOR", zB_recs, [9, s, 0])
+    pxA, pzA, pxB, pzB = xA, zA, xB, zB
+
+    # ---- d_init trailing bare rounds ----
+    for r in range(1, d_init + 1):
+        xA, zA, xB, zB = bb_round_both(error_model)
+        circuit.append("TICK")
+        for s in range(N_C):
+            circuit.append("DETECTOR", [trk.rec(xA + s), trk.rec(pxA + s)], [6, s, r])
+            circuit.append("DETECTOR", [trk.rec(zA + s), trk.rec(pzA + s)], [7, s, r])
+            circuit.append("DETECTOR", [trk.rec(xB + s), trk.rec(pxB + s)], [8, s, r])
+            circuit.append("DETECTOR", [trk.rec(zB + s), trk.rec(pzB + s)], [9, s, r])
+        pxA, pzA, pxB, pzB = xA, zA, xB, zB
+
+    # ---- noiseless transversal Z readout + reconstruction detectors ----
+    circuit.append("M", dataA + dataB)
+    fA = trk.add(N_DATA); fB = trk.add(N_DATA)
+    for s in range(N_C):
+        recs = [trk.rec(fA + int(q)) for q in np.where(H_Z[s])[0]]
+        recs.append(trk.rec(pzA + s))
+        circuit.append("DETECTOR", recs, [18, s, 0])
+    for s in range(N_C):
+        recs = [trk.rec(fB + int(q)) for q in np.where(H_Z[s])[0]]
+        recs.append(trk.rec(pzB + s))
+        circuit.append("DETECTOR", recs, [19, s, 0])
+
+    # ---- observable 0: X̄₁(A)⊗X̄₁(B) ----
+    obs0 = [trk.rec(mpp_idx)]
+    obs0 += [trk.rec(last['vA'] + v) for v in range(12)]
+    obs0 += [trk.rec(last['vB'] + v) for v in range(12)]
+    # bridge Bell-check records of the last round (U1=CX identification cancels
+    # the uncancelled bridge-edge X's in the vertex product); harmless XOR under
+    # U1=CZ where they're deterministic — E2 confirms.
+    for k in range(11):
+        obs0 += [trk.rec(last['ad'] + 2 * k), trk.rec(last['ad'] + 2 * k + 1)]
+    circuit.append("OBSERVABLE_INCLUDE", obs0, 0)
 
     return circuit
 
