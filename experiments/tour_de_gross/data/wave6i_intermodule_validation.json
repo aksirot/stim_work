@@ -1,0 +1,79 @@
+{
+  "_comment": [
+    "Wave-6i inter-module X1(A)xX1(B) VALIDATION measurements, 2026-07-27.",
+    "Committed as data (not runs/, which is gitignored) so notebooks/tour_de_gross/",
+    "wave5_lpu_ops_report.ipynb section 5 renders without a production run.",
+    "These are the fail-fast VALIDATION numbers at reduced geometry (C=3, d_init=2),",
+    "NOT the production campaign (C=10, d_init=12) -- that has not been run.",
+    "Reproduce with experiments/tour_de_gross/failure_spectrum_probe.py."
+  ],
+  "failure_spectrum": {
+    "_what": "f(w) = fraction of weight-w fault configurations the decoder gets wrong. p-INDEPENDENT.",
+    "conditions": {
+      "C": 3, "d_init": 2, "p": 5e-3, "idle_noise": false,
+      "decoder": "RelayBP num_sets=20 stop_nconv=5", "T_per_weight": 400, "seed": 7
+    },
+    "weights": [1, 2, 3, 4, 5, 6],
+    "series": {
+      "y1_baseline": {
+        "label": "Y1 joint Pauli (validated baseline)",
+        "builder": "build_joint_pauli_circuit",
+        "failures": [0, 0, 1, 1, 0, 3],
+        "detectors": 1418, "mechanisms": 46866
+      },
+      "inter_prefix": {
+        "label": "inter-module, pre-closure",
+        "builder": "build_joint_x1x1_circuit(close_cycles=False)",
+        "failures": [0, 0, 0, 0, 2, 0],
+        "detectors": 2722, "mechanisms": 91551
+      },
+      "inter_closure": {
+        "label": "inter-module + Z-cycle closure",
+        "builder": "build_joint_x1x1_circuit(close_cycles=True)",
+        "failures": [0, 0, 1, 0, 1, 2],
+        "detectors": 2742, "mechanisms": 91582
+      }
+    },
+    "_reading": [
+      "Totals per 2400: y1 5, inter pre-fix 2, inter+closure 4 -- statistically",
+      "indistinguishable. The BASELINE IS ITSELF NONZERO at w=3,4,6 (decoder",
+      "miscorrection at the cheap 20-set relay, not undetectable errors), so the",
+      "standard is 'matches the baseline', NEVER 'identically zero'.",
+      "Resolution is ~1/T = 2.5e-3: a clean 0/400 BOUNDS the floor, it does not",
+      "disprove one. Ruling out the ~5e-4-class floor needs T >~ 10000."
+    ]
+  },
+  "expected_faults_per_shot": {
+    "_what": "DEM fault mass, decoder-independent. Why MC LER at p_ref cannot diagnose obs0.",
+    "conditions": {"C": 3, "d_init": 2, "idle_noise": false},
+    "p": [1e-4, 1e-3, 5e-3],
+    "inter_module": [2.12, 21.21, 105.67],
+    "y1_baseline": [1.10, 10.95, 54.56]
+  },
+  "monte_carlo_ler": {
+    "_what": "The measurements that produced -- and then retired -- the reported obs0 'floor'.",
+    "conditions": {"C": 3, "d_init": 2, "decoder": "RelayBP num_sets=20 stop_nconv=5"},
+    "points": [
+      {"circuit": "inter_module", "p": 1e-3, "idle": false, "ler": 0.0200, "se": 0.0099, "shots": 200},
+      {"circuit": "inter_module", "p": 1e-3, "idle": false, "ler": 0.0125, "se": 0.0056, "shots": 400},
+      {"circuit": "inter_module", "p": 5e-3, "idle": false, "ler": 0.4000, "se": 0.0346, "shots": 200},
+      {"circuit": "inter_module", "p": 5e-3, "idle": false, "ler": 0.4500, "se": 0.0352, "shots": 200},
+      {"circuit": "y1_baseline", "p": 5e-3, "idle": false, "ler": 0.3500, "se": 0.0337, "shots": 200},
+      {"circuit": "y1_baseline", "p": 5e-3, "idle": true,  "ler": 0.5100, "se": 0.0353, "shots": 200}
+    ],
+    "_reading": [
+      "The known-good Y1 baseline floors just as hard as the inter-module circuit at",
+      "p=5e-3. At ~106 expected faults/shot against d~10, LER~0.5 is arithmetically",
+      "unavoidable for ANY circuit of this size. The inter-module circuit drops to",
+      "0.02 at p=1e-3 -- a threshold crossing, not a floor."
+    ]
+  },
+  "production_sizing": {
+    "_what": "Idle-ON sizing probe that froze weights_range. Analytic from the DEM, no decoding.",
+    "formula": "w_hi = ceil(mu_max + 4*sqrt(mu_max)),  mu = N_expanded * q_base * p / p_ref",
+    "conditions": {"C": 10, "d_init": 12, "idle_noise": true, "p_ref": 5e-3, "detectors": 10903},
+    "r1":  {"n_expanded": 4542083, "q_base": 3.34e-4, "mu_p_lo": 30.4, "mu_p_hi": 1517.6, "w_hi": 1674},
+    "r10": {"n_expanded": 4737210, "q_base": 3.34e-4, "mu_p_lo": 31.7, "mu_p_hi": 1582.8, "w_hi": 1742},
+    "_reading": "The old [1,900] PLACEHOLDER stopped short of the dominant p_hi mass at w~1518-1583."
+  }
+}
