@@ -155,16 +155,26 @@ def test_k4_lambda_regression():
     """Reproduce the validated K=4 notebook's Λ_full(5e-4) from the cached spectra."""
     def spec_of(name):
         r = json.loads((K4_CACHE / f"{name}.json").read_text(encoding="utf-8"))["result"]
-        return FailureSpectrum(**r["spectrum"])
+        # from_dict, not **: onset_topup_72.py annotates the stored spectrum in place with
+        # an `onset_topup` bookkeeping block, and a bare splat raises TypeError on it.
+        return FailureSpectrum.from_dict(r["spectrum"])
     inv = inv_lambda_stats(spec_of("tech1__full_symmetric"), spec_of("tech1_72__full_symmetric"),
                            5e-4, rounds_small=2, rounds_large=4)
     lam = 1.0 / inv.value
-    # Value pinned from the 2026-07-21 cache: full resample under the calibrated decoder
-    # (num_sets=20, priors frozen at DECODER_P=5e-4 — see run_error_model_comparison.py and
-    # commit 86f0abab). The p_ref-prior era pin was Λ_full = 102 ± 53 (2026-07-09); the
-    # calibrated decoder removes the low-weight miscorrection floor, moving Λ_full to ~2377.
-    # The cache is frozen BETWEEN decoder-convention migrations — re-pin only on a deliberate
-    # resample, never to accommodate a code change.
-    assert lam == pytest.approx(2377.0, rel=0.02)
-    assert 1.0 / (inv.value + 2 * inv.se) > 1000         # σ no longer noise-floor-dominated
+    # Pin history — re-pinned ONLY on deliberate resamples, never to accommodate a code change:
+    #   102  ± 53  (2026-07-09)  p_ref-prior decoder
+    #   2377 ± 2%  (2026-07-21)  calibrated decoder (num_sets=20, priors frozen at
+    #                            DECODER_P=5e-4; run_error_model_comparison.py, 86f0abab)
+    #   780  ± 2%  (2026-07-27)  onset_topup_72.py deepened the 72-code sub-onset bins
+    #
+    # The 07-27 move is a MEASUREMENT improvement, not a regression. onset_topup_72.py added
+    # 10.6M trials at w=2..10 of the 72-code spectrum and found 192 failures there. Those bins
+    # previously read ZERO — so f(w) was a rule-of-three upper bound, not a measurement, and
+    # the resulting Λ_full = 2377 was correspondingly optimistic. With the sub-onset floor
+    # actually resolved, Λ_full falls to ~780. Any future top-up of EITHER spectrum will move
+    # this again; that is the point of the top-up, so re-pin and extend the history above.
+    assert lam == pytest.approx(780.0, rel=0.02)
+    # σ still well clear of the noise floor. Threshold scales with the pin (was >1000 at
+    # Λ=2377, i.e. ~0.42*Λ); at Λ=780 the same margin is ~330, and the measured value is ~602.
+    assert 1.0 / (inv.value + 2 * inv.se) > 500
     assert inv.lo <= inv.value <= inv.hi

@@ -51,6 +51,19 @@ class FailureSpectrum:
         idx = self.weights.index(w)
         return 0.0 if self.trials[idx] == 0 else self.failures[idx] / self.trials[idx]
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "FailureSpectrum":
+        """Build from a serialised spectrum block, IGNORING non-constructor metadata.
+
+        Tools may annotate a stored spectrum in place so the annotation travels with the
+        data: `experiments/methods/onset_topup_72.py` adds an `onset_topup` block recording
+        which weights it has already deepened, which is what makes its reruns idempotent.
+        A bare `FailureSpectrum(**blob)` then dies with an unexpected-keyword TypeError the
+        moment any such tool has touched the file. Always load through this.
+        """
+        keep = set(cls.__dataclass_fields__)
+        return cls(**{k: v for k, v in d.items() if k in keep})
+
 
 @dataclass
 class ImportanceSamplingResult:
