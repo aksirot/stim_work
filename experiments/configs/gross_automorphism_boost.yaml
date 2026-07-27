@@ -1,0 +1,65 @@
+# Wave-5 BOOST pass: shift-automorphism instruction (delta = y, C=10) on the gross code.
+#
+# Boost convention: NEW config, NEW seed, OWN outdir, pooled with the parent downstream via
+# lambda_analysis.pool_spectra. Never an in-place edit — run_is_sweep's guard
+# (experiment_runner.py:642) aborts on a weights_plan/seed change against a live checkpoint, and
+# resolved_outdir keys off `experiment`, so `outdir` MUST be explicit.
+#
+# WHAT CHANGES vs gross_automorphism.yaml:
+#   seed 42 -> 43                    independent draws for additive pooling
+#   adaptive_shots_max 3e3 -> 2e5    zero-bin floor 3/3000=1e-3 -> 3/2e5=1.5e-5
+#   weight_stride 4 -> 8             152 -> 77 bins, 6.4 d -> 3.5 d at 48 cores (ONE submission
+#                                    instead of two). Costs NO grid resolution: the parent already
+#                                    sampled the full stride-4 grid, so the pooled spectrum keeps
+#                                    stride 4 and this pass only chooses which of those bins get
+#                                    the deep budget. 8 is a MULTIPLE of the parent's 4 — keep it
+#                                    that way, so every deep bin lands exactly on a parent bin and
+#                                    pools additively rather than landing between them.
+#   weights_range stays [1,664]
+#
+# WHY THIS CAP IS 15x SMALLER THAN IDLE'S 3e6 (the whole reason for per-campaign caps):
+# the bins that hit the cap are the SUB-ONSET ones — above the onset, adaptive stops early on the
+# 20-failure target and the cap never binds. This circuit's fitted onset is w0 = 69, versus 39
+# (idle) and 25 (Y1). Decode cost climbs steeply with fault weight (RelayBP needs more legs on a
+# dense syndrome): measured on the parent run's own log, 1.63 s/shot at w=57 rising to 2.24 at
+# w=69, against 0.53 s/shot for Y1 at ITS onset of w=25 and 0.15 for idle at w=40. So the
+# automorphism pays twice — it survives to a high weight before failing at all (gamma1 = 13.9,
+# the steepest of the three), and every shot up there is ~4x slower than a low-weight one.
+# Its robustness is exactly what makes its floor expensive to measure.
+#
+# SIZING: run_is_sweep checkpoints per WEIGHT with no intra-bin save, so a bin must fit inside one
+# walltime or it never lands and every requeue restarts it. At 48 cores, 2.24/6 = 0.373 s/shot =>
+# 2e5 shots = ~21 h for the worst bin, inside a 96 h wall. Whole-run estimate ~3.5 d at 48 cores
+# at stride 8 => should fit in ONE submission. Raising this cap to 3e6 would make a single bin
+# ~10 DAYS and livelock the job: it would burn the allocation re-rolling the same weight forever,
+# silently.
+#
+# adaptive_stop_zero_bins stays 3 — REQUIRED: it terminates the descending sweep, which a higher
+# cap pushes deeper.
+label: gross_automorphism_boost
+code_name: bb144
+experiment: automorphism
+decoder_name: relay
+techniques: [IS, I]
+outdir: runs/framework/bb144/automorphism_boost
+seed: 43
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+lpu_C: 10
+lpu_d_init: 12
+lpu_idle_noise: true
+ansatz_model: f5
+pin_onset: false
+
+relay_num_sets: 20
+relay_stop_nconv: 5
+
+weights_range: [1, 664]
+weight_stride: 8
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 200000
+adaptive_stop_zero_bins: 3

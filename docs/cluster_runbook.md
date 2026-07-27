@@ -170,3 +170,81 @@ shrinks ~26x. Random-trial phase unchanged.
 
 ## Wave 6 — double-gross LPU                    open-ended
 Blocked on derive_lpu_layout at (12,12). First job = sizing probe, then mirror W1b→W3.
+
+---
+
+## Wave 5b — LPU boost pass (deeper shots)      submit day: ____________
+Jobs: gross_lpu_idle_boost, gross_automorphism_boost, gross_lpu_y1_boost (48c/96h, 32/48/64G).
+Pinned SHA: `____________________` (fill at submit: `git rev-parse HEAD`)
+
+Purpose: the Wave-5 runs capped at `adaptive_shots_max: 3000`, so every zero-failure bin is
+bounded only at the rule-of-three limit 3/3000 ≈ 1e-3. This pass re-samples at a deeper cap to
+push that floor toward 1e-6, and coarsens idle's stride from 1 to 3 so the budget buys depth
+rather than breadth. Boosts are NEW configs at seed 43 in their OWN `*_boost` outdirs, pooled
+with the parents downstream — the completed runs are never touched.
+
+**Caps are per campaign and are NOT interchangeable.** `run_is_sweep` checkpoints per WEIGHT with
+no intra-bin save, so a bin that cannot finish inside one walltime never lands: every requeue
+restarts it and the job burns the allocation on one weight, silently and forever. Each cap is
+sized so the worst bin is ~1/4 of the 96 h wall at 48 cores.
+
+| campaign     | onset w0 | s/shot @48c | cap       | stride | worst bin | floor 3/T | run @48c |
+|--------------|----------|-------------|-----------|--------|-----------|-----------|----------|
+| idle         | 39       | 0.025       | 3,000,000 | 1 -> 3 | ~21 h     | 1.0e-6    | ~4.0 d   |
+| automorphism | 69       | 0.373       | 200,000   | 4 -> 8 | ~21 h     | 1.5e-5    | ~3.5 d   |
+| Y1           | 25       | 0.089       | 1,000,000 | 6      | ~25 h     | 3.0e-6    | ~3.0 d   |
+
+Boost strides are COARSER than the parents' and must stay a MULTIPLE of them, so every deep bin
+lands exactly on a parent bin and pools additively. This costs no grid resolution — the parents
+already sampled the finer grid, so the pooled spectrum keeps it; the boost only chooses which of
+those bins get the deep budget.
+
+Do NOT trim the window to the low-f bins: cost by failure-rate band is 0.1-1.9% above f=1e-2 and
+70-96% in the sub-onset capped bins (f<1e-4), because the adaptive rule spends 20/f shots and a
+high-f bin costs ~40. The cheap high-f bins also bootstrap the descending sweep's predictor —
+`predict_failure_fraction` uses only 0<f<1 points, so a window starting at f~1e-2 gives the first
+bin ~20 shots, it measures 0, and the "only zero points" branch then returns 1e-12 and sends the
+NEXT bin to shots_max even where 4000 shots would do. Trimming makes the run slower, not faster.
+
+The automorphism's cap is 15x smaller than idle's for a physical reason worth remembering: the
+bins that hit the cap are always the SUB-ONSET ones (above the onset, adaptive stops early on the
+20-failure target and the cap never binds), and decode cost climbs steeply with fault weight
+because RelayBP needs more legs on a dense syndrome. The automorphism has the steepest spectrum
+of the three (gamma1 = 13.9) so it survives to w=69 before failing at all, and every shot up
+there costs ~2.24 s vs 0.53 s for Y1 at ITS onset of w=25. Its robustness is exactly what makes
+its floor expensive to measure. Rates measured 2026-07-27: idle from a local probe (0.153 s/shot
+at w=40, 8 threads), the other two from their own prod logs.
+
+0. Preconditions
+   - [ ] Wave-5 parents complete (`runs/framework/bb144/{lpu_idle,automorphism,joint_pauli}`)
+   - [ ] `python -m pytest -q` green at the pinned SHA
+   - [ ] configs load: `python -c "from experiment_runner import load_config; [load_config(p) for p in __import__('pathlib').Path('experiments/configs').glob('gross_*_boost.yaml')]"`
+1. 15-minute compute-node smoke of the LARGEST (Y1, 64G is the least-tested figure):
+   ```
+   srun --cpus-per-task=4 --mem=16G --time=00:20:00 \
+     python -m experiment_runner --config experiments/configs/gross_lpu_y1_boost.yaml --smoke --cpus 4
+   ```
+   PASS = `runs/framework/bb144/joint_pauli_boost_smoke/result.npz` exists.
+2. Dry-run — verify EXACTLY three entries, cpus/time/mem as in the table:
+   ```
+   bash experiments/slurm/submit_lpu_boost.sh --dry-run
+   ```
+3. Submit: `bash experiments/slurm/submit_lpu_boost.sh`
+4. Monitor: `squeue -u $USER`; logs `tail -f runs/slurm/gross_*_boost_*.out`.
+   **idle and the automorphism are expected to TIME OUT once** — that is planned, not a failure.
+   Re-run the same line to resume (per-weight checkpoints lose at most one bin). Never edit a
+   config while its job is live: the guard at `experiment_runner.py:642` aborts the resume on any
+   weights_plan/seed change.
+5. Pull results home: `rsync -av cluster:stim_work/runs/framework/ runs/cluster/framework/`
+6. Close: pool each boost with its parent and confirm the floor actually moved.
+   ```python
+   from lambda_analysis import load_run, pool_spectra, fill_spectrum, rw_stats, zero_bin_fraction
+   for op in ["lpu_idle", "automorphism", "joint_pauli"]:
+       a, b = load_run(f"runs/framework/bb144/{op}"), load_run(f"runs/cluster/framework/bb144/{op}_boost")
+       s = fill_spectrum(pool_spectra(a.spectrum, b.spectrum))
+       print(op, rw_stats(s, 1e-3), zero_bin_fraction(s))
+   ```
+   PASS = `pool_spectra` does not raise (identical n_expanded/q_base/p_ref = same circuit, the
+   validity condition for pooling), zero-bin fraction drops, and the p=1e-3 headroom shrinks by
+   roughly the cap ratio. Then re-run `notebooks/tour_de_gross/wave5_lpu_ops_report.ipynb`
+   against the pooled spectra.

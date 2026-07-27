@@ -1,0 +1,56 @@
+# Wave-5 BOOST pass: Ybar_1 in-module joint-Pauli measurement on the gross code.
+#
+# Boost convention: NEW config, NEW seed, OWN outdir, pooled with the parent downstream via
+# lambda_analysis.pool_spectra. Never an in-place edit — run_is_sweep's guard
+# (experiment_runner.py:642) aborts on a weights_plan/seed change against a live checkpoint, and
+# resolved_outdir keys off `experiment`, so `outdir` MUST be explicit.
+#
+# WHAT CHANGES vs gross_lpu_y1.yaml:
+#   seed 42 -> 43                    independent draws for additive pooling
+#   adaptive_shots_max 3e3 -> 1e6    zero-bin floor 3/3000=1e-3 -> 3/1e6=3.0e-6
+#   stride stays 6, weights_range stays [1,1110]  -> every boost bin pools onto a parent bin
+#
+# SIZING: run_is_sweep checkpoints per WEIGHT with no intra-bin save, so the cap must satisfy
+# shots_max * s_per_shot < walltime or the bin never lands and every requeue restarts it. This
+# circuit's fitted onset is w0 = 25, where the parent log measured 0.531 s/shot at 8 threads —
+# far cheaper than the automorphism's onset at w=69 (2.24 s/shot), because decode cost climbs with
+# fault weight and Y1 starts failing early. At 48 cores, 0.531/6 = 0.089 s/shot => 1e6 shots =
+# ~25 h for the worst bin, inside a 96 h wall. Whole-run estimate ~3.0 d at 48 cores => should fit
+# in ONE submission; resumable if it does not.
+#
+# Technique II stays dropped: a single BP-OSD decode on this 212k-column full DEM runs ~1.5-2 h
+# (the parent smoke stalled at L(D) trial 6/50 after 10 h). The paper made the same call — Table 2
+# has no Y1 row. w0 here is the fitted onset, not a pinned one (pin_onset: false).
+#
+# adaptive_stop_zero_bins stays 3 — REQUIRED: it terminates the descending sweep, which a higher
+# cap pushes deeper. Note the parent run already reached w=7 with only 1 weight skipped, so this
+# pass mostly deepens bins it already visited rather than finding new ones.
+label: gross_lpu_y1_boost
+code_name: bb144
+experiment: joint_pauli
+decoder_name: relay
+techniques: [IS, I]
+outdir: runs/framework/bb144/joint_pauli_boost
+seed: 43
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+lpu_C: 10
+lpu_d_init: 12
+lpu_operators: "Y1"
+lpu_idle_noise: true
+lpu_include_memory_obs: true
+ansatz_model: f5
+pin_onset: false
+
+relay_num_sets: 20
+relay_stop_nconv: 5
+
+weights_range: [1, 1110]
+weight_stride: 6
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 1000000
+adaptive_stop_zero_bins: 3
