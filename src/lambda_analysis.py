@@ -134,7 +134,7 @@ def cycles_of(config: dict) -> int:
     exp = str(config.get("experiment", "memory"))
     if exp == "lpu_idle":
         return int(config["rounds"] if config.get("rounds") is not None else 12)
-    if exp.startswith("lpu") or exp in ("automorphism", "joint_pauli"):
+    if exp.startswith("lpu") or exp in ("automorphism", "joint_pauli", "inter_module"):
         return int(config["lpu_C"])
     return int(config["rounds"])
 
