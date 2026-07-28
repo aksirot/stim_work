@@ -61,6 +61,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# POLICY GUARD: ghw's wide gamma interval is measured-broken on the 18-code (meas_idle
+# single-fault f(1)=1.4e-2, +40% at w=3) -- refuse it there outright. EMC_FORCE_18=1
+# overrides for deliberate A/B forensics only.
+if [[ "$VAR18" == "ghw" && "${EMC_FORCE_18:-0}" != "1" ]]; then
+  echo "[refuse] EMC_DECODER_18=ghw: the wide gamma interval breaks the 18-code" >&2
+  echo "         (see run_error_model_comparison.py DECODER_VARIANTS comment)." >&2
+  echo "         Set EMC_FORCE_18=1 only for deliberate forensics runs." >&2
+  exit 1
+fi
+
 IMAGE="${QEC_IMAGE:-localhost/stim-work-qec:latest}"
 MOUNT_OPT="${MOUNT_OPT-:z}"         # lowercase z (SHARED label) -- see run_intermodule.sh
 CPUS="${CPUS:-30}"                  # sequential plan: full 30-core budget per container
