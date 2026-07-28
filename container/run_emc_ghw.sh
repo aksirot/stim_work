@@ -73,9 +73,12 @@ if [[ $DRY -eq 0 ]]; then
        -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
        python -c "import sys; sys.path.insert(0, 'experiments/methods')
 import run_error_model_comparison as r
+assert r.DECODER_VARIANT == '${VARIANT}', r.DECODER_VARIANT
 assert r.DEC_CFG['pre_iter'] == 320 and r.DEC_CFG['gamma0'] == 0.0625, r.DEC_CFG
+# ghw is the nc5 config -- stop_nconv=5 inherited from DEC_CFG, NOT the fast nc1 variant
+if '${VARIANT}' == 'ghw': assert r.DEC_CFG['stop_nconv'] == 5, r.DEC_CFG
 assert r.RESULTS.name == '${GHW_RESULTS}', r.RESULTS
-print('ok')" 2>&1)
+print('decoder ok: ' + r.DECODER_VARIANT + ' stop_nconv=' + str(r.DEC_CFG['stop_nconv']))" 2>&1)
   PF_RC=$?
   set -e
   if [[ $PF_RC -eq 0 ]]; then
