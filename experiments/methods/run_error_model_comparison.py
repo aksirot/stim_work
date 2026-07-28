@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -40,7 +41,7 @@ from importance_sampling import (importance_sample_adaptive, fit_failure_spectru
                                  logical_error_rate_from_ansatz)
 from splitting import replica_exchange_estimate
 
-RESULTS = run_dir("error_model_comparison_18_4_4")
+RESULTS = run_dir(os.environ.get("EMC_RESULTS", "error_model_comparison_18_4_4"))
 
 # ---------------------------------------------------------------------------
 # Experiment configuration (mirrors the former in-notebook constants)
@@ -69,6 +70,28 @@ MC72_POINTS = {0.008: 10_000}                 # one slim anchor for the §7.4 pl
 # at the meas-heavy priors) — that part is physics of the operating point, not the decoder.
 DEC_CFG = dict(gamma0=0.125, pre_iter=80, num_sets=20, set_max_iter=60,
                gamma_dist_interval=(-0.24, 0.66), stop_nconv=5)
+
+# Decoder VARIANTS (EMC_DECODER env): "ghw" = glo_heavy_wide, the 2026-07-28 sub-onset
+# tuning result (fixed 71/71 harvested symmetric w=3 failures; see runs/subonset_tune_72/).
+# Deeper+less-damped initial leg, longer/wider relay legs. ~2-4x decode cost.
+# The caches are config-keyed, so a variant invalidates every sampling task — a non-baseline
+# variant therefore REQUIRES its own EMC_RESULTS dir, or it would resample the baseline
+# cache away in place. Enforced below.
+DECODER_VARIANTS = {
+    "baseline": {},
+    "ghw": dict(pre_iter=320, num_sets=200, set_max_iter=120, gamma0=0.0625,
+                gamma_dist_interval=(-0.5, 1.0)),
+    # ghw with first-converged-solution stopping: kept ALL 71/71 harvest fixes at
+    # 3.5-1500x the speed (2026-07-28 bench). Adopt over "ghw" only if the mid-weight
+    # paired parity check (nc1 vs nc5 above onset) shows no systematic b10 excess.
+    "ghw_nc1": dict(pre_iter=320, num_sets=200, set_max_iter=120, gamma0=0.0625,
+                    gamma_dist_interval=(-0.5, 1.0), stop_nconv=1),
+}
+DECODER_VARIANT = os.environ.get("EMC_DECODER", "baseline")
+DEC_CFG = dict(DEC_CFG, **DECODER_VARIANTS[DECODER_VARIANT])
+if DECODER_VARIANT != "baseline" and not os.environ.get("EMC_RESULTS"):
+    raise SystemExit(f"EMC_DECODER={DECODER_VARIANT} requires EMC_RESULTS to point at a "
+                     f"dedicated results dir (protects the baseline cache)")
 
 # Decoder CALIBRATION point (device convention). Sampling stays at P_REF (adaptive IS needs
 # failures), but the decoder's priors come from the same noise model built at the EVALUATION
