@@ -11,16 +11,20 @@
 #   bash container/run_emc_ghw.sh              # launch detached (CPUS=10 default)
 #   bash container/run_emc_ghw.sh --extra "--only tech1_72 asym"   # forward runner flags
 #
-# DECODER (2026-07-28 FINAL decision): ghw -- full glo_heavy_wide with stop_nconv=5,
-# ONE decoder for every weight bin. The fast-stopping variants (nc1/nc2) were measured
-# and REJECTED for the campaign: they match nc5 sub-onset but lose one-sidedly in the
-# w>=12 ambiguity band (nc1 38-vs-22 at w=13 against even the OLD baseline; nc2 same
-# cliff one bin later) -- paired data in runs/subonset_tune_72/. Do not switch the
-# variant mid-campaign; EMC_DECODER exists for separate A/B dirs only.
+# DECODER (2026-07-28 FINAL, SYSTEM-LEVEL Λ): per-code best validated configs --
+#   18-code: baseline DEC_CFG (its own best: zero symmetric sub-onset failures; the ghw
+#            knobs buy it nothing, and ghw's wide gamma interval actively BREAKS it --
+#            meas_idle single-fault f(1)=1.4e-2 + ~40% inflation at w=3).
+#   72-code: ghw (full glo_heavy_wide, stop_nconv=5) -- 71/71 harvested sub-onset fixes,
+#            44:8 paired mid-weight win over baseline.
+# Λ from this run is SYSTEM-level (code + its decoder), not shared-decoder -- the report
+# must say so. Fast-stopping variants (nc1/nc2) REJECTED outright: one-sided losses in
+# the w>=12 ambiguity band. Paired evidence: runs/subonset_tune_72/. Do not switch
+# variants mid-campaign; the EMC_DECODER_* envs exist for separate A/B dirs only.
 #
-# ISOLATION: EMC_DECODER + a variant-named EMC_RESULTS dir (default
-# error_model_comparison_18_4_4_ghw_nc1). The runner HARD-REFUSES a non-baseline decoder
-# without a dedicated EMC_RESULTS, so the baseline cache
+# ISOLATION: EMC_DECODER_18/_72 + a split-named EMC_RESULTS dir (default
+# error_model_comparison_18_4_4_sys_baseline18_ghw72). The runner HARD-REFUSES any
+# non-baseline decoder without a dedicated EMC_RESULTS, so the baseline cache
 # (runs/error_model_comparison_18_4_4/) cannot be resampled away. Pull results home to
 # runs/cluster/, do NOT merge into the baseline dir.
 #
@@ -44,8 +48,9 @@ DRY=0
 SMOKE=0
 EXTRA="${EMC_EXTRA:-}"
 NAME="emc_ghw"
-VARIANT="${EMC_DECODER:-ghw}"
-GHW_RESULTS="${EMC_RESULTS:-error_model_comparison_18_4_4_${VARIANT}}"   # e.g. ..._ghw_nc1
+VAR18="${EMC_DECODER_18:-baseline}"
+VAR72="${EMC_DECODER_72:-ghw}"
+GHW_RESULTS="${EMC_RESULTS:-error_model_comparison_18_4_4_sys_${VAR18}18_${VAR72}72}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY=1; shift ;;
@@ -64,21 +69,23 @@ mkdir -p "runs/${GHW_RESULTS}"
 # PREFLIGHT: the decoder-variant switch must resolve inside the container. Seconds;
 # catches the baked-src failure mode. Never discard the diagnostic.
 if [[ $DRY -eq 0 ]]; then
-  echo -n "[preflight] EMC_DECODER=${VARIANT} resolves in the container... "
+  echo -n "[preflight] per-code decoders (18=${VAR18}, 72=${VAR72}) resolve in the container... "
   set +e
   PF_OUT=$(podman run --rm \
        -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
        -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}" \
-       -e "EMC_DECODER=${VARIANT}" -e "EMC_RESULTS=${GHW_RESULTS}" \
+       -e "EMC_DECODER_18=${VAR18}" -e "EMC_DECODER_72=${VAR72}" -e "EMC_RESULTS=${GHW_RESULTS}" \
        -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
        python -c "import sys; sys.path.insert(0, 'experiments/methods')
 import run_error_model_comparison as r
-assert r.DECODER_VARIANT == '${VARIANT}', r.DECODER_VARIANT
-assert r.DEC_CFG['pre_iter'] == 320 and r.DEC_CFG['gamma0'] == 0.0625, r.DEC_CFG
-# ghw is the nc5 config -- stop_nconv=5 inherited from DEC_CFG, NOT the fast nc1 variant
-if '${VARIANT}' == 'ghw': assert r.DEC_CFG['stop_nconv'] == 5, r.DEC_CFG
+assert (r.DECODER_18, r.DECODER_72) == ('${VAR18}', '${VAR72}'), (r.DECODER_18, r.DECODER_72)
+# 18 must NOT carry the wide gamma interval (it breaks a meas_idle single there)
+if '${VAR18}' == 'baseline': assert r.DEC_CFG_18['gamma_dist_interval'] == (-0.24, 0.66), r.DEC_CFG_18
+if '${VAR72}' == 'ghw':
+    assert r.DEC_CFG_72['gamma_dist_interval'] == (-0.5, 1.0), r.DEC_CFG_72
+    assert r.DEC_CFG_72['stop_nconv'] == 5 and r.DEC_CFG_72['pre_iter'] == 320, r.DEC_CFG_72
 assert r.RESULTS.name == '${GHW_RESULTS}', r.RESULTS
-print('decoder ok: ' + r.DECODER_VARIANT + ' stop_nconv=' + str(r.DEC_CFG['stop_nconv']))" 2>&1)
+print('decoders ok: 18=' + r.DECODER_18 + ' 72=' + r.DECODER_72)" 2>&1)
   PF_RC=$?
   set -e
   if [[ $PF_RC -eq 0 ]]; then
@@ -98,7 +105,7 @@ fi
 # task roster (all should read "missing" on a fresh dir). Foreground, seconds.
 if [[ $SMOKE -eq 1 ]]; then
   podman run --rm -t \
-    -e "EMC_DECODER=${VARIANT}" -e "EMC_RESULTS=${GHW_RESULTS}" \
+    -e "EMC_DECODER_18=${VAR18}" -e "EMC_DECODER_72=${VAR72}" -e "EMC_RESULTS=${GHW_RESULTS}" \
     -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
     -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}" \
     -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}" \
@@ -136,14 +143,14 @@ fi
 CMD=( podman run -d --name "$NAME"
   -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
   -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
-  -e "EMC_DECODER=${VARIANT}" -e "EMC_RESULTS=${GHW_RESULTS}"
+  -e "EMC_DECODER_18=${VAR18}" -e "EMC_DECODER_72=${VAR72}" -e "EMC_RESULTS=${GHW_RESULTS}"
   -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"
   -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}"
   -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}"
   -e PYTHONDONTWRITEBYTECODE=1
   -w /opt/stim_work "${IMAGE}"
   python -u experiments/methods/run_error_model_comparison.py ${EXTRA} )
-echo "[launch] ${NAME}  (threads=${CPUS})  variant=${VARIANT}  runner flags: ${EXTRA}"
+echo "[launch] ${NAME}  (threads=${CPUS})  decoders 18=${VAR18} 72=${VAR72}  runner flags: ${EXTRA}"
 if [[ $DRY -eq 1 ]]; then
   printf '    %q ' "${CMD[@]}"; echo
 else
