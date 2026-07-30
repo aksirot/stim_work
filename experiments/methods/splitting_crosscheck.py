@@ -100,16 +100,26 @@ def run_72_full_ghw():
     circ = rmc.make_circuit72("full symmetric", rmc.P_REF)
     calib = rmc.make_circuit72("full symmetric", rmc.DECODER_P)
     dec = rmc.CalibratedRelayBP(calib, **GHW_CFG)
+    dec.setup(circ)
+    rng = np.random.default_rng(3)
+    # Seeds by harvest+strip with the ghw decoder itself — NOT the serial BP-OSD
+    # min-weight search (measured multi-hour on the 46k-column full DEM). ghw f(w) is
+    # measurable from w~16 up (thousands of shots), and stripping descends w=16-class
+    # configs to ~w=9 in a few hundred decodes — near-onset seeds in minutes.
+    supports, w_min = harvest_and_strip(circ, dec, rng, targets=[16, 24, 40],
+                                        per_weight=15, shots_cap=40_000, batch=2_000)
     t0 = time.time()
     temper, diag = replica_exchange_estimate(
         circ, dec, p_ref=rmc.P_REF, p_high=0.008, p_low=1e-4, n_levels=16,
         n_walkers=8, local_steps=5, n_sweeps=80, burn_in=20, anchor_shots=4000,
-        distance=8, mw_supports=None, seed_p_grid=[3e-3, 1e-3],
-        gap_weights=[10, 16, 26], seed=3, single_sector=False, verbose=True)
+        distance=None, mw_supports=supports, seed_p_grid=[3e-3, 1e-3],
+        gap_weights=[12, 20, 32], seed=3, single_sector=False, verbose=True)
     save("72_full_ghw", temper, diag,
          dict(code="BB_72_4_8", model="full symmetric", decoder="ghw",
               decoder_cfg={k: list(v) if isinstance(v, tuple) else v for k, v in GHW_CFG.items()},
-              calibrated_at=rmc.DECODER_P, p_ref=rmc.P_REF), time.time() - t0)
+              calibrated_at=rmc.DECODER_P, p_ref=rmc.P_REF,
+              seeding="harvest+strip [16,24,40]", w_stripped_min=int(w_min)),
+         time.time() - t0)
 
 
 def strip_configs(det, obs, c2m, dec, configs, rng, max_passes=200, decode_cap=60_000):
@@ -145,20 +155,11 @@ def strip_configs(det, obs, c2m, dec, configs, rng, max_passes=200, decode_cap=6
     return out
 
 
-def harvest_idle_seeds(circ, dec, rng, per_weight=15, shots_cap=60_000, batch=2_000):
-    """Failing-config mechanism supports from fixed-weight sampling, guided by the
-    cached idle spectrum (harvest only where f(w) was measurable)."""
-    spec = json.loads((REPO_ROOT / "runs" / "framework" / "bb144" / "lpu_idle" /
-                       "spectrum.json").read_text(encoding="utf-8"))
-    byw = {int(w): int(f) for w, f in spec["failures_by_weight"].items()}
-    tbyw = spec.get("trials_by_weight", {})
-    lows = sorted(w for w, f in byw.items() if f >= 2)
-    if not lows:
-        raise SystemExit("idle spectrum has no measurable low-weight bins to harvest at")
-    w_lo = lows[0]
-    targets = sorted({w_lo, 2 * w_lo, 4 * w_lo, min(8 * w_lo, max(byw))})
-    print(f"[harvest] lowest measurable f(w) at w={w_lo} "
-          f"({byw[w_lo]}/{tbyw.get(str(w_lo), '?')}); harvest weights {targets}")
+def harvest_and_strip(circ, dec, rng, targets, per_weight=15, shots_cap=60_000, batch=2_000):
+    """Generic seeding: harvest failing configs at the given weights, then strip the
+    lightest toward locally minimal failing sets. Returns (mechanism supports,
+    min stripped weight). Replaces the serial BP-OSD min-weight search everywhere it
+    is too slow (72-code full DEM: multi-hour; idle: prohibitive)."""
     probs, det, obs = _parse_dem(circ)
     c2m, _, _ = _expand(probs, None)
     N_exp = c2m.shape[0]
@@ -197,7 +198,21 @@ def harvest_idle_seeds(circ, dec, rng, per_weight=15, shots_cap=60_000, batch=2_
     stripped = strip_configs(det, obs, c2m, dec, lightest, rng)
     all_cfgs = list({*configs, *stripped})
     supports = [frozenset(int(c2m[c]) for c in cfg) for cfg in all_cfgs]
-    return supports, targets, min(len(c) for c in stripped)
+    return supports, min(len(c) for c in stripped)
+
+
+def idle_harvest_targets():
+    """Harvest weights for the idle, from the cached spectrum (lowest measurable f(w))."""
+    spec = json.loads((REPO_ROOT / "runs" / "framework" / "bb144" / "lpu_idle" /
+                       "spectrum.json").read_text(encoding="utf-8"))
+    byw = {int(w): int(f) for w, f in spec["failures_by_weight"].items()}
+    lows = sorted(w for w, f in byw.items() if f >= 2)
+    if not lows:
+        raise SystemExit("idle spectrum has no measurable low-weight bins to harvest at")
+    w_lo = lows[0]
+    targets = sorted({w_lo, 2 * w_lo, 4 * w_lo, min(8 * w_lo, max(byw))})
+    print(f"[harvest] idle lowest measurable f(w) at w={w_lo}; harvest weights {targets}")
+    return targets
 
 
 def run_lpu_idle(which):
@@ -214,7 +229,8 @@ def run_lpu_idle(which):
         dcfg = {k: list(v) if isinstance(v, tuple) else v for k, v in GHW_CFG.items()}
     dec.setup(circ)
     rng = np.random.default_rng(17 if which == "camp" else 18)
-    supports, targets, w_strip_min = harvest_idle_seeds(circ, dec, rng)
+    targets = idle_harvest_targets()
+    supports, w_strip_min = harvest_and_strip(circ, dec, rng, targets)
     gapw = sorted({int(t * 1.5) for t in targets[:-1]} | {targets[-1] * 2})
     t0 = time.time()
     temper, diag = replica_exchange_estimate(
