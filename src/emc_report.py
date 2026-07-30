@@ -933,3 +933,109 @@ class Report:
                 ax.set_xlabel("base physical error rate p"); ax.set_ylabel(ylab); ax.set_title(title)
                 ax.set_ylim(-1.2, 1.8); ax.legend(fontsize=8); ax.grid(alpha=0.3)
             plt.tight_layout(); plt.show()
+
+
+# ---------------------------------------------------------------------------
+# Decoder A/B: two Report generations side by side (used by emc_decoder_ab.ipynb)
+# ---------------------------------------------------------------------------
+
+def _ab_specs(R, family):
+    """(label, spec) list for one 72-code family of a Report (loaders must have run)."""
+    if family == "models":
+        return [(m, R.tech1_72[m]["spec"]) for m in R.MODELS]
+    if family == "ablated":
+        return [(a, R.tech1_72_abl[a]["spec"]) for a in R.ABLATED]
+    if family == "asym":
+        return [("full ×5", R.asym[("full", "72")])] + \
+               [(a, R.asym[(a, "72")]) for a in R.ABLATED]
+    raise ValueError(family)
+
+
+def _ab_panel(ax, spec_b, spec_s, title):
+    """One A/B panel: baseline decoder (gray, open) vs new decoder (crimson, filled).
+
+    Dots = measured f(w) with binomial errors; × = sampled zero-failure bins drawn at
+    1/(2T) — BOUNDS, not measurements, and the two generations' budgets differ (the
+    baseline bins carry boost72 + 3e6-shot topups; the sys generation ran 1x adaptive),
+    so a baseline dot with no partner dot usually means the new run's budget could not
+    resolve that bin, not that the new decoder is clean there.
+    """
+    for spec, col, lbl, mk, mfc in ((spec_b, "0.45", "baseline decoder", "o", "none"),
+                                    (spec_s, "crimson", "ghw decoder", "D", "crimson")):
+        w = np.asarray(spec.weights, float)
+        F = np.asarray(spec.failures, float)
+        T = np.asarray(spec.trials, float)
+        f = F / np.maximum(T, 1)
+        hit, zero = F > 0, F == 0
+        ax.errorbar(w[hit], f[hit], yerr=np.sqrt(np.clip(f[hit] * (1 - f[hit]), 0, None) / T[hit]),
+                    fmt=mk, ms=3.2, lw=0.8, color=col, mfc=mfc, mew=0.9, label=lbl)
+        if zero.any():
+            ax.plot(w[zero], 0.5 / T[zero], "x", ms=3, color=col, alpha=0.45)
+    ax.set_xscale("log"); ax.set_yscale("log")
+    ax.set_title(title, fontsize=9)
+    ax.grid(alpha=0.25, which="both")
+
+
+def fig_ab_72(R_base, R_new, family="models"):
+    """Grid of 72-code failure-spectrum A/B panels for one family.
+
+    families: "models" (6 isolated+full), "ablated" (5 leave-one-out),
+    "asym" (full ×5 + 5 ablated ×5 mixes). The 18-code side is deliberately absent:
+    both generations share the baseline decoder there and the spectra are
+    bit-identical — nothing to compare.
+    """
+    sb = dict(_ab_specs(R_base, family))
+    ss = dict(_ab_specs(R_new, family))
+    names = [n for n in sb if n in ss]
+    ncol = 3
+    nrow = -(-len(names) // ncol)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(13, 3.6 * nrow), sharex=True, sharey=True)
+    axes = np.atleast_2d(axes)
+    for i, n in enumerate(names):
+        _ab_panel(axes[i // ncol][i % ncol], sb[n], ss[n], n)
+    for j in range(len(names), nrow * ncol):
+        axes[j // ncol][j % ncol].axis("off")
+    axes[0][0].legend(fontsize=7)
+    for r in range(nrow):
+        axes[r][0].set_ylabel("f(w)")
+    for c in range(ncol):
+        axes[-1][c].set_xlabel("fault weight w")
+    fig.suptitle(f"[[72,4,8]] {family}: baseline vs ghw decoder "
+                 "(× = zero-failure bins at 1/2T — bounds, budgets differ between generations)",
+                 fontsize=10)
+    plt.tight_layout(); plt.show()
+
+
+def ab_ratio_table(R_base, R_new, family="models"):
+    """Measured-bin ratio table: f_new/f_base where BOTH generations saw failures.
+
+    Only both-measured bins are compared (ratios of bounds are meaningless); the
+    'first measured w' columns show how much deeper the baseline generation's budgets
+    reach — the sub-onset region is bound-limited in the new generation until its
+    top-up runs.
+    """
+    sb = dict(_ab_specs(R_base, family))
+    ss = dict(_ab_specs(R_new, family))
+    print(f"{'model':16s} {'w':>5} {'f_base':>12} {'f_ghw':>12} {'ratio':>7} {'±':>6}")
+    for n in sb:
+        if n not in ss:
+            continue
+        db = {w: (f, t) for w, f, t in zip(sb[n].weights, sb[n].failures, sb[n].trials)}
+        ds = {w: (f, t) for w, f, t in zip(ss[n].weights, ss[n].failures, ss[n].trials)}
+        both = [w for w in sorted(set(db) & set(ds)) if db[w][0] > 0 and ds[w][0] > 0]
+        first_b = min((w for w, (f, t) in sorted(db.items()) if f > 0), default=None)
+        first_s = min((w for w, (f, t) in sorted(ds.items()) if f > 0), default=None)
+        shown = 0
+        for w in both:
+            fb, tb = db[w]; fs, ts = ds[w]
+            rb, rs = fb / tb, fs / ts
+            ratio = rs / rb
+            se = ratio * float(np.hypot(1 / np.sqrt(fb), 1 / np.sqrt(fs)))
+            print(f"{n if shown == 0 else '':16s} {w:>5} {fb:>6}/{tb:<6} {fs:>6}/{ts:<6}"
+                  f" {ratio:>7.2f} {se:>6.2f}")
+            shown += 1
+            if shown >= 4:
+                break
+        if shown == 0:
+            print(f"{n:16s}   no both-measured bins")
+        print(f"{'':16s}   first measured w: base {first_b}, ghw {first_s}")
