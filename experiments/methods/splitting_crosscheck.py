@@ -112,7 +112,7 @@ def run_72_full_ghw():
               calibrated_at=rmc.DECODER_P, p_ref=rmc.P_REF), time.time() - t0)
 
 
-def strip_configs(det, obs, c2m, dec, configs, rng, max_passes=24, decode_cap=20_000):
+def strip_configs(det, obs, c2m, dec, configs, rng, max_passes=200, decode_cap=60_000):
     """Greedy failure-preserving stripping: descend each failing config toward a locally
     minimal failing set.
 
@@ -189,8 +189,11 @@ def harvest_idle_seeds(circ, dec, rng, per_weight=15, shots_cap=60_000, batch=2_
     if not configs:
         raise SystemExit("harvest found no failing configs — cannot seed the ladder")
     # Stripping: descend the lightest harvested class toward locally minimal failing
-    # sets — the cold rungs' seeds. Keep the un-stripped configs too (mid rungs).
-    lightest = sorted(configs, key=len)[: 2 * per_weight]
+    # sets — the cold rungs' seeds. A w~57 config may need ~50 successful removals, so
+    # the budget is decode-capped, not pass-capped; strip only the lightest per_weight
+    # configs deeply rather than everything shallowly. Un-stripped configs stay in the
+    # pool for the mid rungs.
+    lightest = sorted(configs, key=len)[:per_weight]
     stripped = strip_configs(det, obs, c2m, dec, lightest, rng)
     all_cfgs = list({*configs, *stripped})
     supports = [frozenset(int(c2m[c]) for c in cfg) for cfg in all_cfgs]
