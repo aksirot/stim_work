@@ -770,6 +770,13 @@ def replica_exchange_estimate(
     walker_terms = [[[] for _ in range(L)] for _ in range(n_walkers)]
     wsum = np.zeros(L + 1); wcount = 0
 
+    # Onset tracking: the lightest FAILING configuration ever held by any replica (the
+    # seed pool counts too). Its weight is a free upper bound on the decoder onset
+    # (first w with f(w) > 0), and its support feeds the x-xor-correction distance
+    # bound downstream. Zero extra decodes — pure bookkeeping.
+    min_cfg = min(pool, key=len)
+    w_min_seen = len(min_cfg)
+
     M = det_mat.shape[1]; K = obs_mat.shape[1]
     import time as _time; _t0 = _time.time()
     if verbose:
@@ -817,6 +824,8 @@ def replica_exchange_estimate(
                 for k, (w, i, cand) in enumerate(cands):
                     if fails[k]:
                         replicas[w][i] = cand           # accept (still failing); else keep old
+                        if len(cand) < w_min_seen:
+                            w_min_seen = len(cand); min_cfg = frozenset(cand)
         # (b) swaps on adjacent pairs (even then odd) — no decode needed
         for parity in (0, 1):
             for i in range(parity, L, 2):
@@ -854,7 +863,11 @@ def replica_exchange_estimate(
                   + np.concatenate([[0.0], np.cumsum(np.nan_to_num(combined_se) ** 2)]))
     diag = {"swap_accept": (swap_accepts / np.maximum(swap_attempts, 1)).tolist(),
             "mean_weight": (wsum / max(wcount * n_walkers, 1)).tolist(),
-            "P_high": float(P_high), "n_pool": len(pool), "n_collect": int(wcount)}
+            "P_high": float(P_high), "n_pool": len(pool), "n_collect": int(wcount),
+            # lightest failing config visited (expanded columns -> source mechanisms):
+            # w_min_seen upper-bounds the decoder onset for free.
+            "w_min_seen": int(w_min_seen),
+            "min_config_mechs": sorted({int(col_to_mech[c]) for c in min_cfg})}
     if verbose:
         print(f"  [tempering] anchor P(q0)={P_high:.3e}, pool={len(pool)}, collected {wcount} sweeps", flush=True)
         print(f"  [tempering] swap-accept (adj pairs): "

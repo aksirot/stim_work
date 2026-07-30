@@ -87,6 +87,9 @@ def save(target, temper, diag, extra, elapsed):
         n_pool=int(diag["n_pool"]), n_collect=int(diag["n_collect"]),
         gate_rung=int(g), gate_reason=why,
         p_quotable_min=float(sp[g]),
+        # free onset bookkeeping from the ladder (present in diag since 2026-07-30)
+        w_min_seen=int(diag.get("w_min_seen", -1)),
+        min_config_mechs=diag.get("min_config_mechs", []),
         swap_gate=SWAP_GATE, elapsed_s=round(elapsed, 1), **extra)
     path = OUT_DIR / f"{target}.json"
     path.write_text(json.dumps(out, indent=1), encoding="utf-8")
@@ -247,6 +250,125 @@ def run_lpu_idle(which):
          time.time() - t0)
 
 
+def _mech_parity(c2m, cfg):
+    """Expanded-column config -> mechanism-parity support (same-mech pairs cancel)."""
+    mechs, counts = np.unique(c2m[list(cfg)], return_counts=True)
+    return set(int(m) for m in mechs[counts % 2 == 1])
+
+
+def distance_bounds(det, obs, c2m, dec, configs):
+    """Turn failing configs into certified circuit-distance bounds.
+
+    For a failing x with correction y (Hy = Hx): the set x XOR y is SILENT (fires no
+    detectors) yet flips a logical -> an explicit logical operator, so D <= |x XOR y|.
+    Both directions are verified here against the DEM matrices before anything is
+    reported; unverifiable pairs (decoder returned an invalid/partial correction) are
+    dropped. Returns [(weight, sorted mechanism support)] sorted lightest-first.
+    """
+    syn = np.zeros((len(configs), det.shape[1]), dtype=bool)
+    for i, cfg in enumerate(configs):
+        syn[i] = np.bitwise_xor.reduce(det[c2m[list(cfg)]], axis=0)
+    corr = dec.decode_corrections_batch(syn)
+    out = []
+    for i, cfg in enumerate(configs):
+        x_m = _mech_parity(c2m, cfg)
+        y_m = set(int(m) for m in np.nonzero(np.asarray(corr[i]).ravel())[0])
+        logical = sorted(x_m ^ y_m)
+        if not logical:
+            continue
+        rows = det[logical]
+        silent = not np.bitwise_xor.reduce(rows, axis=0).any()
+        flips = np.bitwise_xor.reduce(obs[logical], axis=0).any()
+        if silent and flips:
+            out.append((len(logical), logical))
+    return sorted(out)
+
+
+ONSET_TARGETS = {
+    # name: (build fn -> (circ, dec), harvest weights)
+    "18_full_base": (lambda: _t18(), [3, 4, 6]),          # validation: known w0=2, D=3
+    "72_full_ghw": (lambda: _t72(), [16, 24, 40]),
+    "lpu_idle_camp": (lambda: _tidle("camp"), None),      # None -> idle_harvest_targets()
+    "lpu_idle_ghw": (lambda: _tidle("ghw"), None),
+}
+
+
+def _t18():
+    circ = rmc.make_circuit("full symmetric", rmc.P_REF)
+    dec = rmc.CalibratedRelayBP(rmc.make_circuit("full symmetric", rmc.DECODER_P), **rmc.DEC_CFG)
+    dec.setup(circ)
+    return circ, dec
+
+
+def _t72():
+    circ = rmc.make_circuit72("full symmetric", rmc.P_REF)
+    dec = rmc.CalibratedRelayBP(rmc.make_circuit72("full symmetric", rmc.DECODER_P), **GHW_CFG)
+    dec.setup(circ)
+    return circ, dec
+
+
+def _tidle(which):
+    from experiment_runner import load_config, build_circuit, make_decoder
+    cfg = load_config(str(REPO_ROOT / "experiments" / "configs" / "gross_lpu_idle.yaml"))
+    circ = build_circuit(cfg)
+    dec = make_decoder(cfg) if which == "camp" else RelayBPDecoder(**GHW_CFG)
+    dec.setup(circ)
+    return circ, dec
+
+
+def run_onset(target, restarts=3, per_weight=25):
+    """Onset hunt: many-restart harvest+strip -> min failing weight (an UPPER bound on
+    the decoder onset — no certificate of absence below it) + certified distance bounds
+    from the lightest minimal configs via x-xor-correction logicals."""
+    build, targets = ONSET_TARGETS[target]
+    circ, dec = build()
+    if targets is None:
+        targets = idle_harvest_targets()
+    probs, det, obs = _parse_dem(circ)
+    c2m, _, _ = _expand(probs, None)
+    t0 = time.time()
+    minimal = []
+    for r in range(restarts):
+        rng = np.random.default_rng([31, r])
+        # harvest at the lightest target weight only — onset is about the light end
+        supports_unused = None
+        configs = []
+        w = targets[0]
+        got, shots = 0, 0
+        N_exp = c2m.shape[0]
+        while got < per_weight and shots < 60_000:
+            idx = rng.integers(0, N_exp, size=(2_000, w))
+            syn = np.bitwise_xor.reduce(det[c2m[idx]], axis=1)
+            tru = np.bitwise_xor.reduce(obs[c2m[idx]], axis=1)
+            bad = np.any(dec.decode_batch(syn) != tru, axis=1)
+            configs += [frozenset(map(int, row)) for row in idx[bad][: per_weight - got]]
+            got += int(min(bad.sum(), per_weight - got))
+            shots += 2_000
+        print(f"[onset r{r}] harvested {len(configs)} at w={w} in {shots} shots", flush=True)
+        if configs:
+            minimal += strip_configs(det, obs, c2m, dec, configs, rng, decode_cap=80_000)
+    if not minimal:
+        raise SystemExit("onset hunt harvested nothing")
+    sizes = sorted(len(c) for c in minimal)
+    lightest = sorted(set(minimal), key=len)[:20]
+    bounds = distance_bounds(det, obs, c2m, dec, lightest)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = dict(target=target, mode="onset", restarts=restarts,
+               harvest_weight=targets[0], n_minimal=len(minimal),
+               w_fail_min=int(sizes[0]),
+               w_fail_hist={str(w): sizes.count(w) for w in sorted(set(sizes))},
+               distance_bound=(int(bounds[0][0]) if bounds else None),
+               n_verified_logicals=len(bounds),
+               best_logical_mechs=(bounds[0][1] if bounds else []),
+               min_fail_config_mechs=sorted(_mech_parity(c2m, min(minimal, key=len))),
+               elapsed_s=round(time.time() - t0, 1))
+    path = OUT_DIR / f"{target}_onset.json"
+    path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(f"[onset] {target}: min failing weight {out['w_fail_min']} "
+          f"(hist {out['w_fail_hist']}); certified D <= {out['distance_bound']} "
+          f"from {len(bounds)} verified logicals; wrote {path}")
+
+
 def run_smoke():
     """18-code full symmetric, tiny budgets, vs the cached tech3 ladder."""
     base = rmc.RESULTS
@@ -283,14 +405,24 @@ def run_smoke():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--target", choices=["72_full_ghw", "lpu_idle_camp", "lpu_idle_ghw"])
+    ap.add_argument("--target", choices=["72_full_ghw", "lpu_idle_camp", "lpu_idle_ghw",
+                                         "18_full_base"])
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--onset", action="store_true",
+                    help="onset hunt (harvest+strip restarts + certified distance bounds) "
+                         "instead of the tempering ladder")
     ap.add_argument("--force", action="store_true")
     a = ap.parse_args()
     if a.smoke:
         run_smoke(); return
     if not a.target:
         ap.error("--target or --smoke")
+    if a.onset:
+        if (OUT_DIR / f"{a.target}_onset.json").exists() and not a.force:
+            raise SystemExit(f"{a.target}_onset.json exists — use --force to redo")
+        run_onset(a.target); return
+    if a.target == "18_full_base":
+        ap.error("18_full_base is an onset-only target (the ladder is cached as tech3)")
     if (OUT_DIR / f"{a.target}.json").exists() and not a.force:
         raise SystemExit(f"{a.target}.json exists — use --force to redo")
     if a.target == "72_full_ghw":

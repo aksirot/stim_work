@@ -158,6 +158,20 @@ class RelayBPDecoder(Decoder):
             detection_events.astype(np.uint8), parallel=self._parallel, progress_bar=False
         )
 
+    def decode_corrections_batch(self, detection_events: np.ndarray) -> np.ndarray:
+        """Full physical corrections (one row per shot, one column per DEM mechanism).
+
+        The correction y satisfies H y = syndrome; for a FAILING decode of a known fault
+        x, the silent set x XOR y flips a logical -> an explicit logical operator and a
+        certified circuit-distance bound D <= |x XOR y|. Mechanism indexing matches
+        importance_sampling._parse_dem (both derive from the same flattened DEM order).
+        """
+        if self._observable_decoder is None:
+            raise RuntimeError("Call setup(circuit) before decode_corrections_batch.")
+        return np.asarray(self._observable_decoder.decode_batch(
+            detection_events.astype(np.uint8), parallel=self._parallel, progress_bar=False
+        ))
+
 
 class BBPyMatchingDecoder(Decoder):
     """
