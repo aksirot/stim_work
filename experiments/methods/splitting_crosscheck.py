@@ -112,6 +112,39 @@ def run_72_full_ghw():
               calibrated_at=rmc.DECODER_P, p_ref=rmc.P_REF), time.time() - t0)
 
 
+def strip_configs(det, obs, c2m, dec, configs, rng, max_passes=24, decode_cap=20_000):
+    """Greedy failure-preserving stripping: descend each failing config toward a locally
+    minimal failing set.
+
+    Exploits the add/remove asymmetry: adding faults keeps failure, removing usually
+    breaks it — so locally minimal failing sets are rare and valuable cold-rung seeds.
+    Per pass, batch-decode every single-fault removal of a config and keep a random one
+    that still fails; stop when none do (local minimum) or budgets run out. Cost ~= sum
+    of config sizes per pass, capped at decode_cap decodes total.
+    """
+    out = []
+    spent = 0
+    for cfg0 in configs:
+        cur = list(cfg0)
+        for _ in range(max_passes):
+            if spent >= decode_cap or len(cur) <= 2:
+                break
+            cand = np.array([[c for c in cur if c != drop] for drop in cur], dtype=np.int64)
+            syn = np.bitwise_xor.reduce(det[c2m[cand]], axis=1)
+            tru = np.bitwise_xor.reduce(obs[c2m[cand]], axis=1)
+            bad = np.any(dec.decode_batch(syn) != tru, axis=1)
+            spent += len(cur)
+            if not bad.any():
+                break                                  # locally minimal failing set
+            cur = [c for c in cur if c != cur[int(rng.choice(np.nonzero(bad)[0]))]]
+        out.append(frozenset(cur))
+    sizes0 = sorted(len(c) for c in configs)
+    sizes1 = sorted(len(c) for c in out)
+    print(f"[strip] {len(configs)} configs: weights {sizes0[0]}..{sizes0[-1]} -> "
+          f"{sizes1[0]}..{sizes1[-1]} (min {sizes1[0]}; {spent} decodes)", flush=True)
+    return out
+
+
 def harvest_idle_seeds(circ, dec, rng, per_weight=15, shots_cap=60_000, batch=2_000):
     """Failing-config mechanism supports from fixed-weight sampling, guided by the
     cached idle spectrum (harvest only where f(w) was measurable)."""
@@ -128,24 +161,40 @@ def harvest_idle_seeds(circ, dec, rng, per_weight=15, shots_cap=60_000, batch=2_
           f"({byw[w_lo]}/{tbyw.get(str(w_lo), '?')}); harvest weights {targets}")
     probs, det, obs = _parse_dem(circ)
     c2m, _, _ = _expand(probs, None)
-    supports = []
+    N_exp = c2m.shape[0]
+    configs = []                               # EXPANDED-column frozensets (for stripping)
     for w in targets:
         got, shots = 0, 0
         t0 = time.time()
         while got < per_weight and shots < shots_cap:
-            mechs, syn, tru = sample_batch(rng, c2m, det, obs, w, batch)
+            idx = rng.integers(0, N_exp, size=(batch, w))
+            if w > 1:                          # duplicate-row rejection (sample_batch style)
+                while True:
+                    s_ = np.sort(idx, axis=1)
+                    bad_rows = (s_[:, 1:] == s_[:, :-1]).any(axis=1)
+                    if not bad_rows.any():
+                        break
+                    idx[bad_rows] = rng.integers(0, N_exp, size=(int(bad_rows.sum()), w))
+            syn = np.bitwise_xor.reduce(det[c2m[idx]], axis=1)
+            tru = np.bitwise_xor.reduce(obs[c2m[idx]], axis=1)
             bad = np.any(dec.decode_batch(syn) != tru, axis=1)
-            for row in mechs[bad][: per_weight - got]:
-                supports.append(frozenset(int(m) for m in row))
+            for row in idx[bad][: per_weight - got]:
+                configs.append(frozenset(int(c) for c in row))
                 got += 1
             shots += batch
         print(f"[harvest] w={w}: {got} failing configs in {shots} shots "
               f"({time.time()-t0:,.0f}s)", flush=True)
         if got == 0:
             print(f"[harvest] w={w}: nothing in budget — dropped")
-    if not supports:
+    if not configs:
         raise SystemExit("harvest found no failing configs — cannot seed the ladder")
-    return supports, targets
+    # Stripping: descend the lightest harvested class toward locally minimal failing
+    # sets — the cold rungs' seeds. Keep the un-stripped configs too (mid rungs).
+    lightest = sorted(configs, key=len)[: 2 * per_weight]
+    stripped = strip_configs(det, obs, c2m, dec, lightest, rng)
+    all_cfgs = list({*configs, *stripped})
+    supports = [frozenset(int(c2m[c]) for c in cfg) for cfg in all_cfgs]
+    return supports, targets, min(len(c) for c in stripped)
 
 
 def run_lpu_idle(which):
@@ -162,7 +211,7 @@ def run_lpu_idle(which):
         dcfg = {k: list(v) if isinstance(v, tuple) else v for k, v in GHW_CFG.items()}
     dec.setup(circ)
     rng = np.random.default_rng(17 if which == "camp" else 18)
-    supports, targets = harvest_idle_seeds(circ, dec, rng)
+    supports, targets, w_strip_min = harvest_idle_seeds(circ, dec, rng)
     gapw = sorted({int(t * 1.5) for t in targets[:-1]} | {targets[-1] * 2})
     t0 = time.time()
     temper, diag = replica_exchange_estimate(
@@ -174,7 +223,8 @@ def run_lpu_idle(which):
     save(f"lpu_idle_{which}", temper, diag,
          dict(code="bb144_lpu_idle", decoder=("campaign" if which == "camp" else "ghw"),
               decoder_cfg=dcfg, prior_convention="from p_ref circuit (campaign style)",
-              harvest_weights=targets, n_harvested=len(supports), p_ref=cfg.p_ref),
+              harvest_weights=targets, n_seeds=len(supports),
+              w_stripped_min=int(w_strip_min), p_ref=cfg.p_ref),
          time.time() - t0)
 
 
