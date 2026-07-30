@@ -7,8 +7,13 @@
 #
 #   bash container/run_sys_topup.sh --dry-run
 #   bash container/run_sys_topup.sh --list        # print the index -> spectrum map
-#   bash container/run_sys_topup.sh               # detached, default = the 6 models
-#   bash container/run_sys_topup.sh --indices "11 12 13 14 15 16"   # the x5-asym family
+#   bash container/run_sys_topup.sh               # 3 parallel shards x 24 threads = 72 cores
+#   bash container/run_sys_topup.sh --indices "11 12 13 14 15 16"     # one container
+#   bash container/run_sys_topup.sh --shards "11 12 13|14 15 16"      # custom parallel split
+#
+# PARALLELISM: one detached container per shard (disjoint index groups; each index owns
+# its spectrum JSON, so shards never write the same file). Default = 3 shards balanced
+# by cost x 24 threads = 72 of 96 cores; scale with CPUS= and/or --shards.
 #
 # MERGE SEMANTICS: onset_topup_72.py pools (trials += / failures +=) into the sys dir's
 # tech1_72/asym spectra, per-weight-atomic and idempotent (a completed weight is
@@ -43,14 +48,21 @@ fi
 
 DRY=0
 LIST=0
-INDICES="${TOPUP_INDICES:-0 1 5 2 3 4}"   # models, cheapest-first (gate idle last)
+# PARALLEL SHARDS: pipe-separated index groups, one detached container per group,
+# CPUS threads each (default 3 x 24 = 72 cores). Safe because each index is its own
+# spectrum JSON -- disjoint groups never touch the same file. The default split
+# balances the per-model cost estimates (gate idle ~100h | meas+prep ~84h |
+# full+CZ+meas_idle ~75h at the 3e6 cap), so the shards finish together-ish.
+SHARDS="${TOPUP_SHARDS:-4|2 3|0 1 5}"
 NAME="sys_topup72"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)  DRY=1; shift ;;
     --list)     LIST=1; shift ;;
     --indices)  [[ $# -ge 2 ]] || { echo "--indices needs a quoted list"; exit 1; }
-                INDICES="$2"; shift 2 ;;
+                SHARDS="$2"; shift 2 ;;      # single shard, one container
+    --shards)   [[ $# -ge 2 ]] || { echo "--shards needs a quoted pipe-separated list"; exit 1; }
+                SHARDS="$2"; shift 2 ;;
     *) echo "unknown flag: $1"; exit 1 ;;
   esac
 done
@@ -68,7 +80,7 @@ if [[ $LIST -eq 1 ]]; then
   exit 0
 fi
 
-LOOP="for i in ${INDICES}; do python -u experiments/methods/onset_topup_72.py --index \$i || exit 1; done"
+# (shard loops are built per shard at launch time, below)
 
 # PREFLIGHT: the split must resolve to ghw on BOTH slots (onset_topup decodes via
 # DEC()'s default = the 18-slot config, so EMC_DECODER must set both), and the results
@@ -100,36 +112,70 @@ print('ok: ghw both slots, sys cache present')" 2>&1)
   fi
 fi
 
-set +e
-EXISTING=$(podman ps -a --filter "name=^${NAME}$" --format '{{.Status}}' 2>/dev/null | head -1)
-set -e
-if [[ -n "$EXISTING" ]]; then
-  if [[ "$EXISTING" == Up* ]]; then
-    echo "[skip] ${NAME} is ALREADY RUNNING (${EXISTING})"
-    exit 0
-  fi
-  echo "[reuse] removing stale ${NAME}; completed weights are skipped on resume"
-  podman rm "$NAME" >/dev/null 2>&1 || true
+# SANITY: shard index groups must be disjoint (two containers pooling into the same
+# spectrum file would race and double-merge).
+ALL_IDX=$(echo "${SHARDS}" | tr '|' ' ')
+DUP=$(echo ${ALL_IDX} | tr ' ' '\n' | sort | uniq -d | head -1)
+if [[ -n "$DUP" ]]; then
+  echo "[refuse] index ${DUP} appears in more than one shard - shards must be disjoint" >&2
+  exit 1
 fi
 
-CMD=( podman run -d --name "$NAME"
-  -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
-  -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
-  -e EMC_DECODER=ghw -e "EMC_RESULTS=${SYS_RESULTS}"
-  -e "ONSET_SHOTS_MAX=${ONSET_SHOTS_MAX:-3000000}"
-  -e "ONSET_TARGET=${ONSET_TARGET:-20}"
-  -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"
-  -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}"
-  -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}"
-  -e PYTHONDONTWRITEBYTECODE=1
-  -w /opt/stim_work "${IMAGE}"
-  bash -c "$LOOP" )
-echo "[launch] ${NAME}  (threads=${CPUS})  indices: ${INDICES}  cap=${ONSET_SHOTS_MAX:-3000000}"
-if [[ $DRY -eq 1 ]]; then
-  printf '    %q ' "${CMD[@]}"; echo
-else
-  "${CMD[@]}"
-  echo "[run_sys_topup] watch:  podman logs -f ${NAME}"
-  echo "[run_sys_topup] pull:   rsync the sys results dir home as before (bins merge in place)"
+FAILED=()
+n=0
+IFS='|' read -ra GROUPS_ARR <<< "$SHARDS"
+for GROUP in "${GROUPS_ARR[@]}"; do
+  GROUP=$(echo $GROUP)                       # trim
+  [[ -z "$GROUP" ]] && continue
+  n=$((n + 1))
+  SNAME="${NAME}_s${n}"
+  LOOP="for i in ${GROUP}; do python -u experiments/methods/onset_topup_72.py --index \$i || exit 1; done"
+
+  set +e
+  EXISTING=$(podman ps -a --filter "name=^${SNAME}$" --format '{{.Status}}' 2>/dev/null | head -1)
+  set -e
+  if [[ -n "$EXISTING" ]]; then
+    if [[ "$EXISTING" == Up* ]]; then
+      echo "[skip]   ${SNAME} is ALREADY RUNNING (${EXISTING}) - leaving it alone"
+      continue
+    fi
+    echo "[reuse]  removing stale ${SNAME}; completed weights are skipped on resume"
+    podman rm "$SNAME" >/dev/null 2>&1 || true
+  fi
+
+  CMD=( podman run -d --name "$SNAME"
+    -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
+    -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
+    -e EMC_DECODER=ghw -e "EMC_RESULTS=${SYS_RESULTS}"
+    -e "ONSET_SHOTS_MAX=${ONSET_SHOTS_MAX:-3000000}"
+    -e "ONSET_TARGET=${ONSET_TARGET:-20}"
+    -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"
+    -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}"
+    -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}"
+    -e PYTHONDONTWRITEBYTECODE=1
+    -w /opt/stim_work "${IMAGE}"
+    bash -c "$LOOP" )
+  echo "[launch] ${SNAME}  (threads=${CPUS})  indices: ${GROUP}  cap=${ONSET_SHOTS_MAX:-3000000}"
+  if [[ $DRY -eq 1 ]]; then
+    printf '    %q ' "${CMD[@]}"; echo
+  else
+    set +e
+    "${CMD[@]}"
+    rc=$?
+    set -e
+    if [[ $rc -ne 0 ]]; then
+      echo "[error]  ${SNAME} failed to start (exit ${rc})" >&2
+      FAILED+=("$SNAME")
+    fi
+  fi
+done
+
+echo
+if [[ ${#FAILED[@]} -gt 0 ]]; then
+  echo "[run_sys_topup] ${#FAILED[@]} shard(s) FAILED to start: ${FAILED[*]}" >&2
 fi
+echo "[run_sys_topup] ${n} shard(s) x ${CPUS} threads = $((n * CPUS)) cores"
+echo "[run_sys_topup] watch:  podman ps ; podman logs -f ${NAME}_s1"
+echo "[run_sys_topup] pull:   rsync the sys results dir home as before (bins merge in place)"
+[[ ${#FAILED[@]} -gt 0 ]] && exit 1
 exit 0
