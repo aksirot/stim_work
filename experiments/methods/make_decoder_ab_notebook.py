@@ -36,12 +36,13 @@ are therefore quoted only where BOTH generations measured failures — that is w
 ghw improvement is real and quantified. The sub-onset comparison stays bound-limited until
 the ghw top-up (onset_topup_72.py with the sys EMC envs) deepens those bins.""")
 
-code(r'''from emc_report import Report, fig_ab_72, ab_ratio_table
+code(r'''from emc_report import Report, fig_ab_72, ab_ratio_table, fig_split_crosscheck
 
 B = Report()                      # baseline generation (deep budgets + topups)
 S = Report("''' + SYS + r'''")    # system-level generation (72-code = ghw, 1x budgets)
 for R in (B, S):
-    R.load_spectra(); R.load_spectra_72(); R.load_ablations(); R.load_ablations_72(); R.load_asym()''')
+    R.load_spectra(); R.load_spectra_72(); R.load_ablations(); R.load_ablations_72(); R.load_asym()
+B.load_splitting()                # 18-code tech3 ladders (identical decoder both gens)''')
 
 md(r"""## 1. Isolated + full models""")
 code(r'''fig_ab_72(B, S, family="models")''')
@@ -54,6 +55,21 @@ code(r'''ab_ratio_table(B, S, family="ablated")''')
 md(r"""## 3. Asymmetric ×5 mixes (meas, meas-idle ×5)""")
 code(r'''fig_ab_72(B, S, family="asym")''')
 code(r'''ab_ratio_table(B, S, family="asym")''')
+
+md(r"""## 4. LER cross-check — Technique III (Metropolis splitting)
+
+Splitting is the paper's answer to exactly the limitation this report keeps flagging: IS
+cannot resolve the small low-weight bins on the bigger codes. It is decoder-in-the-loop
+and weight-agnostic — a tempering ladder of failing configurations whose P_fail(p)
+estimate needs no weight bins at all — so it cross-checks the reweighted-IS curves and
+would expose any failure mass the IS window missed (a sub-onset decoder floor included).
+Left: the [[18,4,4]] campaign ladders (cached tech3, baseline decoder, identical in both
+generations). Right: the new **ghw-decoder** ladder on the [[72,4,8]] full-symmetric
+model vs both generations' reweighted curves. Points beyond a run's honesty gate
+(swap-acceptance / mean-weight monotonicity) are hollow — unconverged, not data.
+Data: `runs/splitting_crosscheck/` (driver `experiments/methods/splitting_crosscheck.py`;
+regression-anchored to the cached tech3 ladder, bit-exact at matched seed/budgets).""")
+code(r'''fig_split_crosscheck(B, S)''')
 
 md(r"""## Takeaways
 

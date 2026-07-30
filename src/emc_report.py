@@ -1006,6 +1006,70 @@ def fig_ab_72(R_base, R_new, family="models"):
     plt.tight_layout(); plt.show()
 
 
+def fig_split_crosscheck(R_base, R_new):
+    """Technique-III (Metropolis splitting) LER cross-check, both codes.
+
+    Left: [[18,4,4]] — the campaign's cached tech3 ladders (baseline decoder; identical
+    in both generations) over the reweighted-measured LER curves. Right: [[72,4,8]]
+    full symmetric — the ghw splitting ladder (runs/splitting_crosscheck/72_full_ghw.json)
+    over the sys generation's reweighted curve, with the baseline generation's curve for
+    reference. Splitting is decoder-in-the-loop and weight-agnostic: agreement validates
+    the IS curves inside their windows; a low-p splitting EXCESS over the reweighted
+    curve is the signature of failure mass the IS window missed (e.g. a sub-onset
+    decoder floor). Ladder points beyond each run's honesty gate (swap-accept /
+    mean-weight monotonicity) are drawn hollow — read those as unconverged, not data.
+    """
+    import pathlib
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 5))
+    pg = R_base.p_grid
+
+    # left: 18-code, all models — tech3 ladders vs reweighted curves
+    for m in R_base.MODELS:
+        col = R_base.COLORS[m]
+        rw = reweight_spectrum(R_base.tech1[m]["spec"], pg).P_logical
+        axL.plot(pg, rw, "-", lw=1.1, color=col, alpha=.65, label=m)
+        t3 = R_base.tech3[m]
+        axL.errorbar(t3["sp"], t3["sP"], yerr=None, fmt="s", ms=3.5, mfc="none",
+                     color=col, lw=0, elinewidth=.8)
+    axL.plot([], [], "s", mfc="none", color="gray", label="splitting (Tech III)")
+    axL.plot([], [], "-", color="gray", lw=1.1, label="reweighted IS")
+    axL.set(xscale="log", yscale="log", xlabel="physical error rate p",
+            ylabel="LER", title="[[18,4,4]] — splitting vs reweighted IS (baseline decoder)")
+    axL.legend(fontsize=6.5, loc="upper left"); axL.grid(alpha=.25, which="both")
+
+    # right: 72-code full symmetric — ghw splitting vs both generations' curves
+    sb = R_base.tech1_72["full symmetric"]["spec"]
+    ss = R_new.tech1_72["full symmetric"]["spec"]
+    axR.plot(pg, reweight_spectrum(fill_spectrum(sb), pg).P_logical, "-", lw=1.1,
+             color="0.45", label="baseline gen (reweighted, deep bins)")
+    axR.plot(pg, reweight_spectrum(fill_spectrum(ss), pg).P_logical, "-", lw=1.4,
+             color="crimson", label="ghw gen (reweighted; low bins pending top-up)")
+    sc = pathlib.Path(run_dir("splitting_crosscheck"))
+    f = sc / "72_full_ghw.json"
+    if f.exists():
+        j = json.loads(f.read_text(encoding="utf-8"))
+        sp = np.asarray(j["sp"]); sP = np.asarray(j["sP"]); se = np.asarray(j["sP_se"])
+        n = len(sp)
+        gate_rung = j["gate_rung"]                  # rung index in DESCENDING ladder
+        ok = np.arange(n) >= (n - 1 - gate_rung)    # ascending sp: quotable = top slice
+        axR.errorbar(sp[ok], sP[ok], yerr=se[ok], fmt="D", ms=5, color="darkgreen",
+                     lw=0, elinewidth=1.0, capsize=2.5,
+                     label=f"ghw splitting (quotable to p={j['p_quotable_min']:.1e})")
+        if (~ok).any():
+            axR.errorbar(sp[~ok], sP[~ok], yerr=se[~ok], fmt="D", ms=5, mfc="none",
+                         color="darkgreen", lw=0, elinewidth=.8, alpha=.6,
+                         label="splitting beyond gate (unconverged)")
+        axR.text(.03, .03, f"swap {min(j['swap_accept']):.2f}..{max(j['swap_accept']):.2f}   "
+                           f"gate: {j['gate_reason']}", transform=axR.transAxes, fontsize=6.5)
+    else:
+        axR.text(.05, .5, "runs/splitting_crosscheck/72_full_ghw.json not present yet",
+                 transform=axR.transAxes, fontsize=9)
+    axR.set(xscale="log", yscale="log", xlabel="physical error rate p",
+            ylabel="LER", title="[[72,4,8]] full symmetric — ghw splitting vs IS generations")
+    axR.legend(fontsize=6.5, loc="upper left"); axR.grid(alpha=.25, which="both")
+    plt.tight_layout(); plt.show()
+
+
 def ab_ratio_table(R_base, R_new, family="models"):
     """Measured-bin ratio table: f_new/f_base where BOTH generations saw failures.
 
