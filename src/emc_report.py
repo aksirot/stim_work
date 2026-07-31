@@ -1103,3 +1103,113 @@ def ab_ratio_table(R_base, R_new, family="models"):
         if shown == 0:
             print(f"{n:16s}   no both-measured bins")
         print(f"{'':16s}   first measured w: base {first_b}, ghw {first_s}")
+
+
+# ---------------------------------------------------------------------------
+# Device-calibration transition (EMC_CALIB=device, 2026-07-31)
+# ---------------------------------------------------------------------------
+DEV_CHANNELS72 = ["CZ only", "meas only", "prep only", "gate idle", "meas idle"]
+
+
+class DevTransition:
+    """Priors-vs-structure decomposition: the same five [[72,4,8]] sub-models decoded
+    by their retired per-model specialist decoders vs the ONE device decoder (full-
+    symmetric priors at DECODER_P). Same circuits, same sampling seeds — every
+    difference is the decoder's priors. Full-symmetric anchors are convention-
+    invariant and load from the sys/baseline caches."""
+
+    def __init__(self,
+                 dev="error_model_comparison_18_4_4_device_baseline18_ghw72",
+                 retired=("_retired_permodel_calib/"
+                          "error_model_comparison_18_4_4_sys_baseline18_ghw72"),
+                 sys_dir="error_model_comparison_18_4_4_sys_baseline18_ghw72",
+                 baseline="error_model_comparison_18_4_4"):
+        self.DEV, self.RET = run_dir(dev), run_dir(retired)
+        self.SYS, self.BASE = run_dir(sys_dir), run_dir(baseline)
+
+    @staticmethod
+    def _spec(root, task):
+        j = json.loads((root / f"{task}.json").read_text(encoding="utf-8"))["result"]
+        keep = set(FailureSpectrum.__dataclass_fields__)
+        return FailureSpectrum(**{k: v for k, v in j["spectrum"].items() if k in keep})
+
+    def load(self):
+        self.dev72 = {m: self._spec(self.DEV, f"tech1_72__{slug(m)}") for m in DEV_CHANNELS72}
+        self.ret72 = {m: self._spec(self.RET, f"tech1_72__{slug(m)}") for m in DEV_CHANNELS72}
+        self.full_ghw = self._spec(self.SYS, "tech1_72__full_symmetric")
+        self.full_base = self._spec(self.BASE, "tech1_72__full_symmetric")
+        n_tu = sum(1 for m in DEV_CHANNELS72
+                   if "onset_topup" in json.loads(
+                       (self.DEV / f"tech1_72__{slug(m)}.json").read_text(encoding="utf-8")
+                   )["result"]["spectrum"])
+        print(f"loaded 5 channels x (device, specialist) + full-sym anchors; "
+              f"{n_tu}/5 device channels have top-up bins so far")
+
+    # --- §1 channels: device vs specialist ---------------------------------------
+
+    def fig_channels(self):
+        fig, axes = plt.subplots(1, 5, figsize=(16, 3.4), sharey=True)
+        for ax, m in zip(axes, DEV_CHANNELS72):
+            for spec, color, label, mk in [(self.ret72[m], "0.55", "specialist", "o"),
+                                           (self.dev72[m], COLORS[m], "device", "x")]:
+                W = np.asarray(spec.weights); F = np.asarray(spec.failures, float)
+                T = np.asarray(spec.trials, float)
+                meas = F > 0
+                f = F[meas] / T[meas]
+                se = np.sqrt(f * (1 - f) / T[meas])
+                ax.errorbar(W[meas], f, 1.96 * se, fmt=mk, color=color, ms=5,
+                            lw=1, capsize=2, label=label)
+                z = ~meas & (T > 0)
+                ax.plot(W[z], 1.0 / (2 * T[z]), marker="v", ls="none", ms=4,
+                        mfc="none", mec=color, alpha=0.6)
+            ax.set_yscale("log"); ax.set_title(m, fontsize=10)
+            ax.set_xlabel("fault weight w"); ax.grid(alpha=0.3, which="both")
+        axes[0].set_ylabel("f(w)")
+        axes[0].legend(fontsize=8, loc="upper left")
+        fig.suptitle("[[72,4,8]] channel spectra — specialist (retired) vs device decoder "
+                     "(hollow ▽ = zero-failure bin, 1/(2T) bound)", y=1.04)
+        plt.tight_layout(); plt.show()
+
+    def ratio_table(self):
+        print(f"{'channel':12s} {'w':>3} {'device':>14} {'specialist':>14} "
+              f"{'ratio':>7} {'z':>6}")
+        for m in DEV_CHANNELS72:
+            d = {w: (f, t) for w, f, t in
+                 zip(self.dev72[m].weights, self.dev72[m].failures, self.dev72[m].trials)}
+            r = {w: (f, t) for w, f, t in
+                 zip(self.ret72[m].weights, self.ret72[m].failures, self.ret72[m].trials)}
+            shown = 0
+            for w in sorted(set(d) & set(r)):
+                (fd, td), (fr, tr) = d[w], r[w]
+                if fd == 0 and fr == 0:
+                    continue
+                rd, rr = fd / td, fr / tr
+                var = (max(fd, 1) / td**2) + (max(fr, 1) / tr**2)
+                z = (rd - rr) / np.sqrt(var)
+                ratio = f"{rd/rr:7.2f}" if fd and fr else "   n/a "
+                print(f"{m:12s} {w:3d} {fd:6d}/{td:<8.0f} {fr:6d}/{tr:<8.0f}"
+                      f"{ratio} {z:6.1f}")
+                shown += 1
+            if not shown:
+                print(f"{m:12s}   no measured bins on either side yet")
+        print("\nz: normal approx on the rate difference; |z|>2 is a real priors effect.")
+
+    # --- §2 full-symmetric anchors (convention-invariant) ------------------------
+
+    def anchor_table(self, p_star=5e-4, rounds72=7):
+        print(f"full-symmetric [[72,4,8]] anchors at p* = {p_star} (convention-invariant):")
+        out = {}
+        for tag, spec in [("baseline", self.full_base), ("ghw", self.full_ghw)]:
+            v = reweight_spectrum(spec, [p_star])
+            L, se = float(v.P_logical[0]), float(v.P_logical_se[0])
+            up = FailureSpectrum(weights=spec.weights, trials=spec.trials,
+                                 failures=[f if f > 0 else min(3, t)
+                                           for f, t in zip(spec.failures, spec.trials)],
+                                 n_expanded=spec.n_expanded, q_base=spec.q_base,
+                                 p_ref=spec.p_ref)
+            head = float(reweight_spectrum(up, [p_star]).P_logical[0]) - L
+            out[tag] = (L, se, head)
+            print(f"  {tag:9s}: LER = {L:.3e} ± {se:.1e}   zero-bin headroom +{head/L*100:.0f}%")
+        (Lb, _, _), (Lg, _, hg) = out["baseline"], out["ghw"]
+        print(f"  decoder improvement: {Lb/Lg:.1f}x  "
+              f"(floor {Lb/(Lg+hg):.1f}x pricing every ghw zero bin at 3/T)")
