@@ -96,6 +96,11 @@ class Ctx:
         mechs, counts = np.unique(self.c2m[list(expanded_cfg)], return_counts=True)
         return frozenset(int(m) for m in mechs[counts % 2 == 1])
 
+    def lift(self, mech_support):
+        """Mechanism support -> expanded config (first expanded column per mechanism;
+        c2m is sorted by construction, so searchsorted finds each mech's first col)."""
+        return set(int(c) for c in np.searchsorted(self.c2m, sorted(mech_support)))
+
     def fails(self, dec, supports):
         syn, tru = self.syn_tru_of_mechs([sorted(s) for s in supports])
         return np.any(dec.decode_batch(syn) != tru, axis=1)
@@ -132,20 +137,45 @@ def lib_add(lib, supports, generator, iteration):
 
 
 # ------------------------------------------------------------------------ phase G
-def strip_one(ctx, dec, cfg_set, rng, decode_budget):
-    """Greedy failure-preserving descent of one expanded config; returns (final, spent)."""
-    cur = list(cfg_set)
-    spent = 0
-    while len(cur) > 2 and spent < decode_budget:
-        cand = np.array([[c for c in cur if c != drop] for drop in cur], dtype=np.int64)
-        syn = np.bitwise_xor.reduce(ctx.det[ctx.c2m[cand]], axis=1)
-        tru = np.bitwise_xor.reduce(ctx.obs[ctx.c2m[cand]], axis=1)
-        bad = np.any(dec.decode_batch(syn) != tru, axis=1)
-        spent += len(cur)
-        if not bad.any():
+def lockstep_strip(ctx, dec, cfg_sets, rng, deadline, max_rounds=60):
+    """Greedy failure-preserving descent of MANY configs in lockstep.
+
+    Per round, the single-fault-removal candidates of every still-active config go into
+    ONE decode batch (~hundreds of rows) — small per-config batches decode at ~1/s
+    under contention (fixed call overhead, no thread amortization), which made the
+    per-config strip the dominant cost; lockstep restores batch-rate throughput.
+    Returns list of (locally-)minimal expanded config sets.
+    """
+    active = [list(c) for c in cfg_sets]
+    done = []
+    rounds = 0
+    while active and rounds < max_rounds and time.time() < deadline:
+        rounds += 1
+        cand_rows, owner = [], []
+        for ci, cur in enumerate(active):
+            for drop in cur:
+                cand_rows.append([c for c in cur if c != drop])
+                owner.append(ci)
+        if not cand_rows:
             break
-        cur = [c for c in cur if c != cur[int(rng.choice(np.nonzero(bad)[0]))]]
-    return set(cur), spent
+        maxlen = max(len(r) for r in cand_rows)
+        syn = np.zeros((len(cand_rows), ctx.det.shape[1]), dtype=bool)
+        tru = np.zeros((len(cand_rows), ctx.obs.shape[1]), dtype=bool)
+        for i, r in enumerate(cand_rows):
+            syn[i] = np.bitwise_xor.reduce(ctx.det[ctx.c2m[np.array(r)]], axis=0)
+            tru[i] = np.bitwise_xor.reduce(ctx.obs[ctx.c2m[np.array(r)]], axis=0)
+        bad = np.any(dec.decode_batch(syn) != tru, axis=1)
+        owner = np.asarray(owner)
+        nxt = []
+        for ci, cur in enumerate(active):
+            hits = np.nonzero(bad & (owner == ci))[0]
+            if hits.size == 0 or len(cur) <= 2:
+                done.append(set(cur))                  # locally minimal (or floor)
+            else:
+                nxt.append(cand_rows[int(rng.choice(hits))])
+        active = nxt
+    done += [set(c) for c in active]                   # deadline leftovers, as-is
+    return done
 
 
 def phase_generate(ctx, lib, iteration, deadline, smoke, incumbent_cfg, report):
@@ -176,88 +206,70 @@ def phase_generate(ctx, lib, iteration, deadline, smoke, incumbent_cfg, report):
 
     raw, shots = harvest(gen, w_h, per, 200_000)
     print(f"[G] harvested {len(raw)} at w={w_h} in {shots} shots", flush=True)
-    minimal = []
-    spent = 0
-    for c in raw:
-        m, s = strip_one(ctx, gen, c, rng, max(500, (strip_cap - spent)))
-        minimal.append(m)
-        spent += s
+    minimal = lockstep_strip(ctx, gen, raw, rng, deadline)
     if minimal:
         sizes = sorted(len(ctx.support(m)) for m in minimal)
-        print(f"[G] stripped: support weights {sizes[0]}..{sizes[-1]} ({spent} decodes)", flush=True)
+        print(f"[G] stripped (lockstep): support weights {sizes[0]}..{sizes[-1]}", flush=True)
 
-    # escalation: plateau escapes until stabilization (descent-only, code-agnostic)
-    pool = sorted(minimal, key=len)
+    def escape_cycle(pool_cfgs, n_escapes):
+        """One batched plateau-escape round: inflate lightest configs, keep the ones
+        that still fail (one verify batch), lockstep-strip the survivors."""
+        bases = sorted(pool_cfgs, key=len)[:max(3, n_escapes // 3)]
+        cands = []
+        for k in range(n_escapes):
+            c = set(bases[k % len(bases)])
+            for _ in range(1 if k % 3 else 2):
+                c.add(int(rng.integers(ctx.N_exp)))
+            cands.append(c)
+        syn = np.zeros((len(cands), ctx.det.shape[1]), dtype=bool)
+        tru = np.zeros((len(cands), ctx.obs.shape[1]), dtype=bool)
+        for i, c in enumerate(cands):
+            arr = np.array(sorted(c))
+            syn[i] = np.bitwise_xor.reduce(ctx.det[ctx.c2m[arr]], axis=0)
+            tru[i] = np.bitwise_xor.reduce(ctx.obs[ctx.c2m[arr]], axis=0)
+        bad = np.any(gen.decode_batch(syn) != tru, axis=1)
+        survivors = [cands[i] for i in np.nonzero(bad)[0]]
+        return lockstep_strip(ctx, gen, survivors, rng, deadline) if survivors else []
+
+    # escalation: batched plateau escapes until stabilization (descent-only)
+    pool = list(minimal)
     w_hat = min((len(ctx.support(m)) for m in pool), default=None)
-    stable = 0
-    esc_round = 0
+    stable, esc_round = 0, 0
     while stable < STABLE_ROUNDS and time.time() < deadline and pool:
         esc_round += 1
-        found_lighter = False
-        for base in sorted(pool, key=len)[:6]:
-            for n_add in (1, 1, 2):
-                c = set(base)
-                for _ in range(n_add):
-                    c.add(int(rng.integers(ctx.N_exp)))
-                syn, tru = ctx.syn_tru_of_mechs([sorted(ctx.support(c))])
-                if not np.any(gen.decode_batch(syn) != tru, axis=1)[0]:
-                    continue
-                m, _ = strip_one(ctx, gen, c, rng, 2_000)
-                wm = len(ctx.support(m))
-                pool.append(m)
-                if w_hat is None or wm < w_hat:
-                    w_hat = wm
-                    found_lighter = True
-                if time.time() > deadline:
-                    break
-            if time.time() > deadline:
-                break
-        stable = 0 if found_lighter else stable + 1
+        new = escape_cycle(pool, 6 if smoke else 18)
+        pool += new
+        w_new = min((len(ctx.support(m)) for m in pool), default=None)
+        lighter = w_new is not None and (w_hat is None or w_new < w_hat)
+        w_hat = w_new if lighter else w_hat
+        stable = 0 if lighter else stable + 1
         print(f"[G] escalation round {esc_round}: w_hat={w_hat} "
-              f"({'lighter found' if found_lighter else f'stable {stable}/{STABLE_ROUNDS}'})",
+              f"({'lighter found' if lighter else f'stable {stable}/{STABLE_ROUNDS}'})",
               flush=True)
 
-    supports = [ctx.support(m) for m in pool]
-    added = lib_add(lib, supports, "ghw_nc1", iteration)
+    added = lib_add(lib, [ctx.support(m) for m in pool], "ghw_nc1", iteration)
 
     # incumbent-failure top-up (iteration >= 2)
     if iteration >= 2 and time.time() < deadline:
         inc = ctx.decoder(incumbent_cfg)
-        raw_i, shots_i = harvest(inc, w_h, per // 2, 60_000)
-        sup_i = []
-        for c in raw_i:
-            m, _ = strip_one(ctx, inc, c, rng, 1_500)
-            sup_i.append(ctx.support(m))
-        a2 = lib_add(lib, sup_i, "incumbent", iteration)
+        raw_i, _ = harvest(inc, w_h, per // 2, 60_000)
+        min_i = lockstep_strip(ctx, inc, raw_i, rng, deadline) if raw_i else []
+        a2 = lib_add(lib, [ctx.support(m) for m in min_i], "incumbent", iteration)
         print(f"[G] incumbent top-up: {len(raw_i)} harvested, {a2} added", flush=True)
 
-    # census requirement: >=10 at w <= w_hat+1 (w_hat = library's own minimum)
+    # census requirement: >=10 at w <= w_hat+1 (w_hat = library's own minimum),
+    # closed by batched escape cycles replayed at the floor
     ws = [e["w"] for e in lib["entries"]]
     w_hat_lib = min(ws)
     census = sum(1 for w in ws if w <= w_hat_lib + 1)
     while census < CENSUS_MIN and time.time() < deadline:
-        # sibling generation: plateau-replay at the floor
-        floor_cfgs = [set(e["mechs"]) for e in lib["entries"] if e["w"] <= w_hat_lib + 1]
-        base = floor_cfgs[int(rng.integers(len(floor_cfgs)))]
-        c = set(base); c.add(int(rng.integers(ctx.N_exp)))  # expanded-vs-mech blur ok for escape
-        syn, tru = ctx.syn_tru_of_mechs([sorted(c)])
-        if np.any(gen.decode_batch(syn) != tru, axis=1)[0]:
-            # strip in mechanism space directly via expanded identity mapping
-            mset = sorted(c)
-            cur = mset
-            for _ in range(4):
-                if len(cur) <= 2:
-                    break
-                cand = [[x for x in cur if x != d] for d in cur]
-                syn2, tru2 = ctx.syn_tru_of_mechs(cand)
-                bad = np.any(gen.decode_batch(syn2) != tru2, axis=1)
-                if not bad.any():
-                    break
-                cur = cand[int(rng.choice(np.nonzero(bad)[0]))]
-            lib_add(lib, [frozenset(cur)], "ghw_nc1", iteration)
+        floor_cfgs = [ctx.lift(e["mechs"]) for e in lib["entries"] if e["w"] <= w_hat_lib + 2]
+        new = escape_cycle(floor_cfgs, 6 if smoke else 12)
+        lib_add(lib, [ctx.support(m) for m in new], "ghw_nc1", iteration)
         ws = [e["w"] for e in lib["entries"]]
         w_hat_lib = min(ws)
         census = sum(1 for w in ws if w <= w_hat_lib + 1)
+        print(f"[G] census cycle: w_hat={w_hat_lib}, census={census}", flush=True)
     lib_save(lib)
     hist = {}
     for w in sorted(ws):
@@ -306,8 +318,9 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
         uniq = {k: v for k, v in uniq.items() if k in keep}
     supports = [frozenset(e["mechs"]) for e in lib["entries"]]
     ws = np.array([e["w"] for e in lib["entries"]])
-    rng = np.random.default_rng(202)
-    _, psyn, ptru = ctx.sample(rng, 12, 300 if smoke else 500)   # throughput probe batch
+    # PASS 1: library fixes for ALL candidates — this IS the ranking signal, and it is
+    # cheap (each candidate decodes only the library's ~10^2-10^3 syndromes). Probes
+    # must never crowd it out of the box (the smoke's original sin).
     rows = []
     for name, cfg in uniq.items():
         if time.time() > deadline and name != "incumbent":
@@ -315,17 +328,30 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
             break
         dec = ctx.decoder(cfg)
         bad = ctx.fails(dec, supports)
-        t0 = time.time()
-        dec.decode_batch(psyn)
-        rate = len(psyn) / max(time.time() - t0, 1e-9)
         w_ub = int(ws[bad].min()) if bad.any() else None
         rows.append(dict(name=name, fixes=int((~bad).sum()), fails=int(bad.sum()),
-                         n=len(supports), rate=round(rate, 1),
-                         w_onset_ub=w_ub, cfg=cfg))
+                         n=len(supports), rate=None, w_onset_ub=w_ub, cfg=cfg))
         print(f"[B] {name:16s} fixes {rows[-1]['fixes']:4d}/{len(supports)}  "
-              f"{rate:8,.0f} dec/s  onset_ub={'>' + str(int(ws.max())) if w_ub is None else w_ub}",
-              flush=True)
-    rows.sort(key=lambda r: (-r["fixes"], -r["rate"]))
+              f"onset_ub={'>' + str(int(ws.max())) if w_ub is None else w_ub}", flush=True)
+    rows.sort(key=lambda r: -r["fixes"])
+    # PASS 2: throughput probes for the top few + incumbent only, small batch, within
+    # whatever box time remains (rate is a tiebreaker/report column, not the signal).
+    rng = np.random.default_rng(202)
+    _, psyn, _ptru = ctx.sample(rng, 10, 100 if smoke else 250)
+    probed = 0
+    for r in rows:
+        if probed >= 6 and r["name"] != "incumbent":
+            continue
+        if time.time() > deadline:
+            break
+        t0 = time.time()
+        ctx.decoder(r["cfg"]).decode_batch(psyn)
+        r["rate"] = round(len(psyn) / max(time.time() - t0, 1e-9), 1)
+        probed += 1
+    rows.sort(key=lambda r: (-r["fixes"], -(r["rate"] or 0)))
+    for r in rows[:8]:
+        print(f"[B] rank {r['name']:16s} fixes {r['fixes']:4d}  "
+              f"rate {r['rate'] if r['rate'] is not None else '—'}", flush=True)
     report["bench"] = dict(n_candidates=len(rows), library_n=len(supports),
                            ranking=[{k: v for k, v in r.items() if k != "cfg"} for r in rows])
     return rows
@@ -359,11 +385,18 @@ def phase_verify(ctx, rows, incumbent_cfg, deadline, smoke, report):
                 done += B; n += B
         # regression gate: is b10 significantly above b01?
         p = binomtest(b10, b10 + b01, 0.5, alternative="greater").pvalue if (b10 + b01) else 1.0
-        ok = p > 0.05
+        # promotion needs POSITIVE evidence, not just absence of regression: either a
+        # paired win (b01>0) or a library margin >= 2 entries. Otherwise (e.g. zero
+        # paired events + 1-entry margin) retain the incumbent.
+        margin = ch["fixes"] - inc_row["fixes"]
+        ok = p > 0.05 and (b01 > 0 or margin >= 2)
         verdicts.append(dict(name=ch["name"], shots=n, inc_fails=f_i, ch_fails=f_c,
-                             b01=b01, b10=b10, p_regress=round(float(p), 4), passes=bool(ok)))
+                             b01=b01, b10=b10, lib_margin=margin,
+                             p_regress=round(float(p), 4), passes=bool(ok)))
         print(f"[V] {ch['name']:16s} paired {n} shots: inc {f_i} vs ch {f_c}  "
-              f"b01={b01} b10={b10} p={p:.3f} -> {'PASS' if ok else 'REJECT'}", flush=True)
+              f"b01={b01} b10={b10} margin={margin} p={p:.3f} -> "
+              f"{'PASS' if ok else 'REJECT (no positive evidence)' if p > 0.05 else 'REJECT'}",
+              flush=True)
     winner = None
     for v in verdicts:
         if v["passes"]:
@@ -385,7 +418,7 @@ def iterate(smoke=False):
     inc_cfg = {k: tuple(v) if isinstance(v, list) else v
                for k, v in state["incumbent_cfg"].items()}
     t0 = time.time()
-    boxes = (3, 5, 8) if smoke else (18, 12, 28)     # minutes for G, B, V
+    boxes = (7, 4, 5) if smoke else (18, 12, 28)     # minutes for G, B, V
     report = dict(iteration=itn, incumbent=state["incumbent_name"], smoke=smoke)
     lib = lib_load()
     print(f"=== iteration {itn} (incumbent {state['incumbent_name']}; "
@@ -436,6 +469,9 @@ def main():
     if a.status:
         status()
     elif a.iterate or a.smoke:
+        if a.smoke:                       # smoke never touches the real loop's state
+            global OUT
+            OUT = OUT / "_smoke"
         iterate(smoke=a.smoke)
     else:
         ap.error("--iterate, --smoke or --status")

@@ -104,6 +104,26 @@ def topup(name: str) -> None:
         spec["failures"] = [byw[w][1] for w in ws]
         path.write_text(json.dumps(j, indent=1), encoding="utf-8")
 
+    fc = spec.setdefault("failure_configs", {})   # {str(w): [[mech,...], ...]} specimens
+    FC_CAP = 200                                  # per weight, bounds file size
+
+    def _sample_keep(w, T, rng):
+        """Same sampling as importance_sampling._sample_failures_at_weight (same rng
+        call pattern -> same distribution), but KEEPS the failing configurations'
+        mechanism lists. Purely observational: counts are computed identically."""
+        N_exp = col_to_mech.shape[0]
+        syndromes = np.zeros((T, det_mat.shape[1]), dtype=bool)
+        truths = np.zeros((T, obs_mat.shape[1]), dtype=bool)
+        rows = []
+        for t in range(T):
+            mech_idxs = col_to_mech[rng.choice(N_exp, size=w, replace=False)]
+            rows.append(mech_idxs)
+            syndromes[t] = np.bitwise_xor.reduce(det_mat[mech_idxs], axis=0)
+            truths[t] = np.bitwise_xor.reduce(obs_mat[mech_idxs], axis=0)
+        fails = np.any(dec.decode_batch(syndromes) != truths, axis=1)
+        cfgs = [sorted(int(m) for m in rows[i]) for i in np.nonzero(fails)[0]]
+        return int(fails.sum()), cfgs
+
     for w in ONSET_WEIGHTS:
         if str(w) in tu:
             print(f"[{name}] w={w}: already topped up ({tu[str(w)]}); skip", flush=True)
@@ -113,16 +133,21 @@ def topup(name: str) -> None:
         t0 = time.perf_counter()
         while add_f < TARGET and add_t < SHOTS_MAX:
             c = min(CHUNK, SHOTS_MAX - add_t)
-            add_f += int(_sample_failures_at_weight(det_mat, obs_mat, col_to_mech, w, c, dec, rng))
+            n_f, cfgs = _sample_keep(w, c, rng)
+            add_f += n_f
+            bucket = fc.setdefault(str(w), [])
+            bucket.extend(cfgs[: max(0, FC_CAP - len(bucket))])
             add_t += c
         byw.setdefault(w, [0, 0])
         byw[w][0] += add_t
         byw[w][1] += add_f
-        tu[str(w)] = {"added_trials": add_t, "added_fails": add_f}
+        tu[str(w)] = {"added_trials": add_t, "added_fails": add_f,
+                      "n_failure_configs": len(fc.get(str(w), []))}
         save()                               # atomic per weight: merge + mark done together
         f_hat = byw[w][1] / byw[w][0]
         print(f"[{name}] w={w}: +{add_t} shots +{add_f} fails -> bin {byw[w]} "
-              f"(f={f_hat:.2e}) {time.perf_counter()-t0:.0f}s", flush=True)
+              f"(f={f_hat:.2e}, {len(fc.get(str(w), []))} specimens) "
+              f"{time.perf_counter()-t0:.0f}s", flush=True)
     print(f"[{name}] onset top-up complete", flush=True)
 
 
