@@ -320,6 +320,24 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
         uniq = {k: v for k, v in uniq.items() if k in keep}
     supports = [frozenset(e["mechs"]) for e in lib["entries"]]
     ws = np.array([e["w"] for e in lib["entries"]])
+    # BENCH SUBSAMPLE: at ~300+ entries the full-library pass costs ~4.5 min/candidate
+    # and the deadline reached only 2 candidates (iters 4-5). Keep ALL entries in the
+    # risk-dominant band (w<=8: exact onset_ub, exact low-w risk) and subsample the
+    # tail to ~120, seeded per-iteration so successive iterations rotate tail coverage.
+    # The tail's per-entry risk weight is orders of magnitude below the low band, so
+    # ranking is unaffected; the paired verify remains the promotion authority.
+    MAX_BENCH = 200
+    if len(supports) > MAX_BENCH:
+        low = np.nonzero(ws <= 8)[0]
+        tail = np.nonzero(ws > 8)[0]
+        srng = np.random.default_rng(lib.get("n", 0))
+        keep_tail = srng.choice(tail, size=min(len(tail), MAX_BENCH - len(low)),
+                                replace=False)
+        idx = np.sort(np.concatenate([low, keep_tail]))
+        supports = [supports[i] for i in idx]
+        ws = ws[idx]
+        print(f"[B] bench subsample: {len(low)} low-band (w<=8, all) + "
+              f"{len(keep_tail)} of {len(tail)} tail entries", flush=True)
     # LER-relevant entry weights: a failing entry at weight w costs ~P(W=w at p*)
     # (a w=3 miss is worth orders of magnitude more LER than a w=16 miss), split
     # evenly over the library's entries at that weight (entries ~ samples of their
