@@ -41,7 +41,7 @@ import run_error_model_comparison as rmc
 from subonset_relay_sweep import CONFIGS as NAMED_GRID
 from importance_sampling import _parse_dem, _expand
 from repo_paths import REPO_ROOT
-from scipy.stats import binomtest
+from scipy.stats import binom, binomtest
 
 OUT = REPO_ROOT / "runs" / "decoder_loop"
 GEN_CFG = dict(rmc.DEC_CFG, **rmc.DECODER_VARIANTS["ghw_nc1"])   # fast generator
@@ -303,8 +303,10 @@ def neighborhood(cfg):
 
 
 def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
-    cands = dict(NAMED_GRID)
-    cands.update(neighborhood(incumbent_cfg))
+    # neighborhood FIRST: it moves with the incumbent and is where discoveries come
+    # from, yet it was deadline-cut two iterations running when benched last
+    cands = dict(neighborhood(incumbent_cfg))
+    cands.update(NAMED_GRID)
     # dedup (by config content) and make sure the incumbent itself is present
     seen, uniq = {}, {}
     for name, cfg in [("incumbent", incumbent_cfg)] + list(cands.items()):
@@ -318,6 +320,14 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
         uniq = {k: v for k, v in uniq.items() if k in keep}
     supports = [frozenset(e["mechs"]) for e in lib["entries"]]
     ws = np.array([e["w"] for e in lib["entries"]])
+    # LER-relevant entry weights: a failing entry at weight w costs ~P(W=w at p*)
+    # (a w=3 miss is worth orders of magnitude more LER than a w=16 miss), split
+    # evenly over the library's entries at that weight (entries ~ samples of their
+    # weight class). "risk" = sum of weights over FAILED entries; primary ranking key.
+    q_star = ctx.q_base * (rmc.DECODER_P / rmc.P_REF)
+    pw = binom.pmf(ws, ctx.N_exp, q_star)
+    n_of_w = {int(w): int((ws == w).sum()) for w in set(ws.tolist())}
+    ent_wt = pw / np.array([n_of_w[int(w)] for w in ws])
     # PASS 1: library fixes for ALL candidates — this IS the ranking signal, and it is
     # cheap (each candidate decodes only the library's ~10^2-10^3 syndromes). Probes
     # must never crowd it out of the box (the smoke's original sin).
@@ -330,10 +340,12 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
         bad = ctx.fails(dec, supports)
         w_ub = int(ws[bad].min()) if bad.any() else None
         rows.append(dict(name=name, fixes=int((~bad).sum()), fails=int(bad.sum()),
-                         n=len(supports), rate=None, w_onset_ub=w_ub, cfg=cfg))
+                         n=len(supports), risk=float(ent_wt[bad].sum()), rate=None,
+                         w_onset_ub=w_ub, cfg=cfg))
         print(f"[B] {name:16s} fixes {rows[-1]['fixes']:4d}/{len(supports)}  "
+              f"risk {rows[-1]['risk']:.2e}  "
               f"onset_ub={'>' + str(int(ws.max())) if w_ub is None else w_ub}", flush=True)
-    rows.sort(key=lambda r: -r["fixes"])
+    rows.sort(key=lambda r: (r["risk"], -r["fixes"]))
     # PASS 2: throughput probes for the top few + incumbent only, small batch, within
     # whatever box time remains (rate is a tiebreaker/report column, not the signal).
     rng = np.random.default_rng(202)
@@ -348,9 +360,9 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
         ctx.decoder(r["cfg"]).decode_batch(psyn)
         r["rate"] = round(len(psyn) / max(time.time() - t0, 1e-9), 1)
         probed += 1
-    rows.sort(key=lambda r: (-r["fixes"], -(r["rate"] or 0)))
+    rows.sort(key=lambda r: (r["risk"], -r["fixes"], -(r["rate"] or 0)))
     for r in rows[:8]:
-        print(f"[B] rank {r['name']:16s} fixes {r['fixes']:4d}  "
+        print(f"[B] rank {r['name']:16s} risk {r['risk']:.2e}  fixes {r['fixes']:4d}  "
               f"rate {r['rate'] if r['rate'] is not None else '—'}", flush=True)
     report["bench"] = dict(n_candidates=len(rows), library_n=len(supports),
                            ranking=[{k: v for k, v in r.items() if k != "cfg"} for r in rows])
@@ -364,7 +376,8 @@ def phase_verify(ctx, rows, incumbent_cfg, deadline, smoke, report):
     inc_row = next(r for r in rows if json.dumps(
         {k: list(v) if isinstance(v, tuple) else v for k, v in r["cfg"].items()},
         sort_keys=True) == inc_key)
-    challengers = [r for r in rows if r is not inc_row and r["fixes"] > inc_row["fixes"]][:2]
+    challengers = [r for r in rows if r is not inc_row
+                   and r["risk"] < inc_row["risk"] * 0.999][:2]
     verdicts = []
     inc = ctx.decoder(incumbent_cfg)
     rng = np.random.default_rng(303)
@@ -393,12 +406,14 @@ def phase_verify(ctx, rows, incumbent_cfg, deadline, smoke, report):
         # paired win (b01>0) or a library margin >= 2 entries. Otherwise (e.g. zero
         # paired events + 1-entry margin) retain the incumbent.
         margin = ch["fixes"] - inc_row["fixes"]
-        ok = n >= MIN_SHOTS and p > 0.05 and (b01 > 0 or margin >= 2)
+        risk_gain = 1.0 - ch["risk"] / inc_row["risk"] if inc_row["risk"] > 0 else 1.0
+        ok = n >= MIN_SHOTS and p > 0.05 and (b01 > 0 or risk_gain >= 0.2)
         verdicts.append(dict(name=ch["name"], shots=n, inc_fails=f_i, ch_fails=f_c,
                              b01=b01, b10=b10, lib_margin=margin,
+                             risk_gain=round(float(risk_gain), 3),
                              p_regress=round(float(p), 4), passes=bool(ok)))
         print(f"[V] {ch['name']:16s} paired {n} shots: inc {f_i} vs ch {f_c}  "
-              f"b01={b01} b10={b10} margin={margin} p={p:.3f} -> "
+              f"b01={b01} b10={b10} risk_gain={risk_gain:.0%} p={p:.3f} -> "
               f"{'PASS' if ok else 'REJECT (insufficient shots)' if n < MIN_SHOTS else 'REJECT (no positive evidence)' if p > 0.05 else 'REJECT'}",
               flush=True)
     winner = None
