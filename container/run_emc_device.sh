@@ -25,7 +25,10 @@ REPO="$PWD"
 DRY=0
 SMOKE=0
 EXTRA="${EMC_EXTRA:-}"
-NAME="emc_device"
+# EMC_NAME: override the container name to run PARALLEL SHARDS over disjoint --only
+# prefixes (safe: each task owns its JSON; use prefixes that don't overlap -- NB
+# "tech1" also matches tech1_72*, use "tech1__" for the 18-code-only group).
+NAME="${EMC_NAME:-emc_device}"
 VAR18="${EMC_DECODER_18:-baseline}"
 VAR72="${EMC_DECODER_72:-ghw}"
 DEV_RESULTS="${EMC_RESULTS:-error_model_comparison_18_4_4_device_${VAR18}18_${VAR72}72}"
