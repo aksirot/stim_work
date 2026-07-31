@@ -509,10 +509,16 @@ def run_all(r: Runner, boost72=False):
     calib72_abl = (lambda name: make_circuit72("full symmetric", DECODER_P)) if device \
         else (lambda name: make_ablated_circuit72(name, DECODER_P))
     calib_extra = {"calib": "device"} if device else {}
-    dec18 = dict(**DEC_CFG_18, calibrated_at=DECODER_P, **calib_extra)
-    dec72 = dict(**DEC_CFG_72, calibrated_at=DECODER_P, **calib_extra)
+    dec18 = dict(**DEC_CFG_18, calibrated_at=DECODER_P)
+    dec72 = dict(**DEC_CFG_72, calibrated_at=DECODER_P)
     base18 = dict(code=CODE18, p_ref=P_REF, rounds=ROUNDS, decoder=dec18)
     base72 = dict(code=CODE72, p_ref=P_REF, rounds=ROUNDS72, decoder=dec72)
+    # The calib marker goes ONLY on tasks whose calibration actually changes under
+    # device mode (sub-models, ablations). Full-symmetric and asym-full tasks calibrate
+    # on themselves under BOTH conventions — leaving their configs untouched means
+    # legacy full-symmetric results copied into a device dir stay config-fresh.
+    base18m = dict(base18, decoder=dict(dec18, **calib_extra))
+    base72m = dict(base72, decoder=dict(dec72, **calib_extra))
     grid = dict(p_grid=P_GRID, window=WINDOW_RULE)
     mc_pts = {p: int(s * MC_SCALE) for p, s in MC_BASE_POINTS.items()}
 
@@ -525,18 +531,19 @@ def run_all(r: Runner, boost72=False):
 
     # §1 + §3 (tech3 needs tech2's D and L(D)); §2; §4
     for name in MODELS:
+        b18 = base18 if name == "full symmetric" else base18m
         t2 = r.task(f"tech2__{slug(name)}", dict(**base18, model=name, budget_per_coset=40),
                     lambda name=name: tech2_body(make_circuit(name, P_REF)))
-        r.task(f"tech1__{slug(name)}", dict(**base18, **grid, model=name, **IS18, seed=1),
+        r.task(f"tech1__{slug(name)}", dict(**b18, **grid, model=name, **IS18, seed=1),
                lambda name=name: spectrum_body(make_circuit(name, P_REF), weight_window_18, IS18, seed=1,
                                                calib=calib18(name)))
         if t2 is not None:
             r.task(f"tech3__{slug(name)}",
-                   dict(**base18, model=name, p_high=0.015, p_low=1e-4, n_levels=16, n_walkers=8,
+                   dict(**b18, model=name, p_high=0.015, p_low=1e-4, n_levels=16, n_walkers=8,
                         local_steps=5, n_sweeps=80, burn_in=20, anchor_shots=4000, seed=2, D=t2["D"]),
                    lambda name=name, t2=t2: tech3_body(make_circuit(name, P_REF), t2["D"], t2["LD"],
                                                        calib18(name)))
-        r.task(f"mc__{slug(name)}", dict(**base18, model=name, points=mc_pts, mc_scale=MC_SCALE),
+        r.task(f"mc__{slug(name)}", dict(**b18, model=name, points=mc_pts, mc_scale=MC_SCALE),
                lambda name=name: mc_body(lambda pp: make_circuit(name, pp), mc_pts,
                                          calib18(name)))
 
@@ -544,28 +551,29 @@ def run_all(r: Runner, boost72=False):
     for name in ABLATED:
         r.task(f"tech2_abl__{slug(name)}", dict(**base18, ablate=ABLATED[name], budget_per_coset=40),
                lambda name=name: tech2_body(make_ablated_circuit(name, P_REF)))
-        r.task(f"tech1_abl__{slug(name)}", dict(**base18, **grid, ablate=ABLATED[name], **IS18, seed=3),
+        r.task(f"tech1_abl__{slug(name)}", dict(**base18m, **grid, ablate=ABLATED[name], **IS18, seed=3),
                lambda name=name: spectrum_body(make_ablated_circuit(name, P_REF), weight_window_18,
                                                IS18, seed=3, calib=calib18_abl(name)))
-        r.task(f"mc_abl__{slug(name)}", dict(**base18, ablate=ABLATED[name], points=mc_pts, mc_scale=MC_SCALE),
+        r.task(f"mc_abl__{slug(name)}", dict(**base18m, ablate=ABLATED[name], points=mc_pts, mc_scale=MC_SCALE),
                lambda name=name: mc_body(lambda pp: make_ablated_circuit(name, pp), mc_pts,
                                          calib18_abl(name)))
 
     # §7 the [[72,4,8]] sibling
     for name in MODELS:
+        b72 = base72 if name == "full symmetric" else base72m
         r.task(f"tech2_72__{slug(name)}", dict(**base72, model=name),
                lambda name=name: dict(D=compute_distance(make_circuit72(name, P_REF)).distance))
-        r.task(f"tech1_72__{slug(name)}", dict(**base72, **grid, model=name, **is72, seed=4),
+        r.task(f"tech1_72__{slug(name)}", dict(**b72, **grid, model=name, **is72, seed=4),
                lambda name=name: spectrum_body(make_circuit72(name, P_REF), weight_window_72, is72, seed=4,
                                                calib=calib72(name),
                                                dec_cfg=DEC_CFG_72))
-        r.task(f"mc72__{slug(name)}", dict(**base72, model=name, points=MC72_POINTS),
+        r.task(f"mc72__{slug(name)}", dict(**b72, model=name, points=MC72_POINTS),
                lambda name=name: mc_body(lambda pp: make_circuit72(name, pp), MC72_POINTS,
                                          calib72(name), dec_cfg=DEC_CFG_72))
 
     # §7.5 leave-one-out on the 72-code (spectra only; the Λ shares read these)
     for name in ABLATED:
-        r.task(f"tech1_72_abl__{slug(name)}", dict(**base72, **grid, ablate=ABLATED[name], **is72, seed=5),
+        r.task(f"tech1_72_abl__{slug(name)}", dict(**base72m, **grid, ablate=ABLATED[name], **is72, seed=5),
                lambda name=name: spectrum_body(make_ablated_circuit72(name, P_REF), weight_window_72,
                                                is72, seed=5, with_fit=False,
                                                calib=calib72_abl(name),
@@ -578,14 +586,15 @@ def run_all(r: Runner, boost72=False):
             "18": (P, ROUNDS, weight_window_72, is72, DEC_CFG_18),
             "72": (BB_72_4_8, ROUNDS72, weight_window_72, is72, DEC_CFG_72)}.items():
         base = dict(code=repr(cp), p_ref=P_REF, rounds=rr,
-                    decoder=dict(**dcfg, calibrated_at=DECODER_P, **calib_extra), scale=SCALE)
+                    decoder=dict(**dcfg, calibrated_at=DECODER_P), scale=SCALE)
+        base_m = dict(base, decoder=dict(**dcfg, calibrated_at=DECODER_P, **calib_extra))
         r.task(f"asym__full_{label}", dict(**base, **grid, **cfg, seed=6),
                lambda cp=cp, rr=rr, window=window, cfg=cfg, dcfg=dcfg:
                    spectrum_body(make_full_asym(cp, rr, P_REF), window, cfg, seed=6, with_fit=False,
                                  calib=make_full_asym(cp, rr, DECODER_P), dec_cfg=dcfg))
         for abl_name, ch in ABLATED.items():
             # asym rays are their own device: ablations share the full-asym calibration
-            r.task(f"asym__{slug(abl_name)}_{label}", dict(**base, **grid, **cfg, ablate=ch, seed=6),
+            r.task(f"asym__{slug(abl_name)}_{label}", dict(**base_m, **grid, **cfg, ablate=ch, seed=6),
                    lambda cp=cp, rr=rr, window=window, cfg=cfg, ch=ch, dcfg=dcfg:
                        spectrum_body(make_abl_asym(cp, rr, ch, P_REF), window, cfg, seed=6, with_fit=False,
                                      calib=(make_full_asym(cp, rr, DECODER_P) if device else
