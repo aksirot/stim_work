@@ -370,12 +370,16 @@ def phase_verify(ctx, rows, incumbent_cfg, deadline, smoke, report):
     rng = np.random.default_rng(303)
     T = 800 if smoke else 5_000
     weights = [10] if smoke else [10, 14]
-    for ch in challengers:
+    MIN_SHOTS = 400 if smoke else 2_000   # no promotion on a starved paired test
+    for k, ch in enumerate(challengers):
+        # per-challenger slice of the remaining box: one slow challenger must not
+        # starve the next one down to a 0-shot "verification"
+        ch_deadline = min(deadline, time.time() + (deadline - time.time()) / (len(challengers) - k))
         cd = ctx.decoder(ch["cfg"])
         b01 = b10 = f_i = f_c = n = 0
         for w in weights:
             done = 0
-            while done < T and time.time() < deadline:
+            while done < T and time.time() < ch_deadline:
                 B = min(1_000, T - done)
                 _, syn, tru = ctx.sample(rng, w, B)
                 xi = np.any(inc.decode_batch(syn) != tru, axis=1)
@@ -389,13 +393,13 @@ def phase_verify(ctx, rows, incumbent_cfg, deadline, smoke, report):
         # paired win (b01>0) or a library margin >= 2 entries. Otherwise (e.g. zero
         # paired events + 1-entry margin) retain the incumbent.
         margin = ch["fixes"] - inc_row["fixes"]
-        ok = p > 0.05 and (b01 > 0 or margin >= 2)
+        ok = n >= MIN_SHOTS and p > 0.05 and (b01 > 0 or margin >= 2)
         verdicts.append(dict(name=ch["name"], shots=n, inc_fails=f_i, ch_fails=f_c,
                              b01=b01, b10=b10, lib_margin=margin,
                              p_regress=round(float(p), 4), passes=bool(ok)))
         print(f"[V] {ch['name']:16s} paired {n} shots: inc {f_i} vs ch {f_c}  "
               f"b01={b01} b10={b10} margin={margin} p={p:.3f} -> "
-              f"{'PASS' if ok else 'REJECT (no positive evidence)' if p > 0.05 else 'REJECT'}",
+              f"{'PASS' if ok else 'REJECT (insufficient shots)' if n < MIN_SHOTS else 'REJECT (no positive evidence)' if p > 0.05 else 'REJECT'}",
               flush=True)
     winner = None
     for v in verdicts:
