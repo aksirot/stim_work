@@ -427,10 +427,16 @@ def iterate(smoke=False):
     lib = lib_load()
     print(f"=== iteration {itn} (incumbent {state['incumbent_name']}; "
           f"library n={len(lib['entries'])}) ===", flush=True)
+    # B and V get a GUARANTEED MINIMUM box measured from their own start (75% of the
+    # nominal box), so a G overrun (deadline checks are between batches; a single slow
+    # decode batch can run minutes past) delays them instead of erasing them.
+    # Iteration 2 proved the failure mode: G overran ~11 min and B benched exactly one
+    # candidate. Worst case the iteration runs ~75 min instead of 60.
     phase_generate(ctx, lib, itn, t0 + boxes[0] * 60, smoke, inc_cfg, report)
-    rows = phase_bench(ctx, lib, inc_cfg, t0 + (boxes[0] + boxes[1]) * 60, smoke, report)
-    winner, cfg_of = phase_verify(ctx, rows, inc_cfg,
-                                  t0 + (boxes[0] + boxes[1] + boxes[2]) * 60, smoke, report)
+    d_b = max(t0 + (boxes[0] + boxes[1]) * 60, time.time() + boxes[1] * 45)
+    rows = phase_bench(ctx, lib, inc_cfg, d_b, smoke, report)
+    d_v = max(t0 + (boxes[0] + boxes[1] + boxes[2]) * 60, time.time() + boxes[2] * 45)
+    winner, cfg_of = phase_verify(ctx, rows, inc_cfg, d_v, smoke, report)
     if winner:
         state["incumbent_name"] = winner
         state["incumbent_cfg"] = {k: list(v) if isinstance(v, tuple) else v
