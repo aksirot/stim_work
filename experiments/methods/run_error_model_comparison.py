@@ -105,6 +105,23 @@ if (DECODER_18, DECODER_72) != ("baseline", "baseline") and not os.environ.get("
                      f"baseline cache)")
 DEC_CFG = DEC_CFG_18   # back-compat alias (18-code default; topup scripts layer on this)
 
+# Calibration CONVENTION (EMC_CALIB env): "model" (legacy) calibrates each task's priors
+# on that task's OWN noise model at DECODER_P — so "meas only" and "full symmetric" are
+# decoded by decoders with different priors, i.e. genuinely different decoders. "device"
+# calibrates every model/ablation of a code on the code's FULL SYMMETRIC circuit (the
+# device); sub-channel rows and ablations are analysis slices of one device, and the
+# decoder must not change with the analysis. Under "device", failing configs found on a
+# sub-model transfer EXACTLY to the full model (identical syndrome->correction map).
+# The §8 asymmetric rays are a different device hypothesis: they keep their own
+# full-asym calibration, shared by their ablations. Recorded in task configs (cache
+# invalidation is automatic); requires a dedicated EMC_RESULTS like decoder variants.
+CALIB_MODE = os.environ.get("EMC_CALIB", "model")
+if CALIB_MODE not in ("model", "device"):
+    raise SystemExit(f"EMC_CALIB={CALIB_MODE!r}: expected 'model' or 'device'")
+if CALIB_MODE == "device" and not os.environ.get("EMC_RESULTS"):
+    raise SystemExit("EMC_CALIB=device requires EMC_RESULTS to point at a dedicated "
+                     "results dir (protects the legacy per-model-calibration cache)")
+
 # Decoder CALIBRATION point (device convention). Sampling stays at P_REF (adaptive IS needs
 # failures), but the decoder's priors come from the same noise model built at the EVALUATION
 # rate p* — a real decoder is calibrated to device rates, not to a sampling artifact. This
@@ -481,8 +498,19 @@ def schedule_svg_body():
 # ---------------------------------------------------------------------------
 def run_all(r: Runner, boost72=False):
     is72 = IS72_BOOST if boost72 else IS72
-    dec18 = dict(**DEC_CFG_18, calibrated_at=DECODER_P)
-    dec72 = dict(**DEC_CFG_72, calibrated_at=DECODER_P)
+    device = CALIB_MODE == "device"
+    # one device decoder per code: every model/ablation calibrates on full symmetric
+    calib18 = (lambda name: make_circuit("full symmetric", DECODER_P)) if device \
+        else (lambda name: make_circuit(name, DECODER_P))
+    calib18_abl = (lambda name: make_circuit("full symmetric", DECODER_P)) if device \
+        else (lambda name: make_ablated_circuit(name, DECODER_P))
+    calib72 = (lambda name: make_circuit72("full symmetric", DECODER_P)) if device \
+        else (lambda name: make_circuit72(name, DECODER_P))
+    calib72_abl = (lambda name: make_circuit72("full symmetric", DECODER_P)) if device \
+        else (lambda name: make_ablated_circuit72(name, DECODER_P))
+    calib_extra = {"calib": "device"} if device else {}
+    dec18 = dict(**DEC_CFG_18, calibrated_at=DECODER_P, **calib_extra)
+    dec72 = dict(**DEC_CFG_72, calibrated_at=DECODER_P, **calib_extra)
     base18 = dict(code=CODE18, p_ref=P_REF, rounds=ROUNDS, decoder=dec18)
     base72 = dict(code=CODE72, p_ref=P_REF, rounds=ROUNDS72, decoder=dec72)
     grid = dict(p_grid=P_GRID, window=WINDOW_RULE)
@@ -501,16 +529,16 @@ def run_all(r: Runner, boost72=False):
                     lambda name=name: tech2_body(make_circuit(name, P_REF)))
         r.task(f"tech1__{slug(name)}", dict(**base18, **grid, model=name, **IS18, seed=1),
                lambda name=name: spectrum_body(make_circuit(name, P_REF), weight_window_18, IS18, seed=1,
-                                               calib=make_circuit(name, DECODER_P)))
+                                               calib=calib18(name)))
         if t2 is not None:
             r.task(f"tech3__{slug(name)}",
                    dict(**base18, model=name, p_high=0.015, p_low=1e-4, n_levels=16, n_walkers=8,
                         local_steps=5, n_sweeps=80, burn_in=20, anchor_shots=4000, seed=2, D=t2["D"]),
                    lambda name=name, t2=t2: tech3_body(make_circuit(name, P_REF), t2["D"], t2["LD"],
-                                                       make_circuit(name, DECODER_P)))
+                                                       calib18(name)))
         r.task(f"mc__{slug(name)}", dict(**base18, model=name, points=mc_pts, mc_scale=MC_SCALE),
                lambda name=name: mc_body(lambda pp: make_circuit(name, pp), mc_pts,
-                                         make_circuit(name, DECODER_P)))
+                                         calib18(name)))
 
     # §5 ablations on the 18-code
     for name in ABLATED:
@@ -518,10 +546,10 @@ def run_all(r: Runner, boost72=False):
                lambda name=name: tech2_body(make_ablated_circuit(name, P_REF)))
         r.task(f"tech1_abl__{slug(name)}", dict(**base18, **grid, ablate=ABLATED[name], **IS18, seed=3),
                lambda name=name: spectrum_body(make_ablated_circuit(name, P_REF), weight_window_18,
-                                               IS18, seed=3, calib=make_ablated_circuit(name, DECODER_P)))
+                                               IS18, seed=3, calib=calib18_abl(name)))
         r.task(f"mc_abl__{slug(name)}", dict(**base18, ablate=ABLATED[name], points=mc_pts, mc_scale=MC_SCALE),
                lambda name=name: mc_body(lambda pp: make_ablated_circuit(name, pp), mc_pts,
-                                         make_ablated_circuit(name, DECODER_P)))
+                                         calib18_abl(name)))
 
     # §7 the [[72,4,8]] sibling
     for name in MODELS:
@@ -529,18 +557,18 @@ def run_all(r: Runner, boost72=False):
                lambda name=name: dict(D=compute_distance(make_circuit72(name, P_REF)).distance))
         r.task(f"tech1_72__{slug(name)}", dict(**base72, **grid, model=name, **is72, seed=4),
                lambda name=name: spectrum_body(make_circuit72(name, P_REF), weight_window_72, is72, seed=4,
-                                               calib=make_circuit72(name, DECODER_P),
+                                               calib=calib72(name),
                                                dec_cfg=DEC_CFG_72))
         r.task(f"mc72__{slug(name)}", dict(**base72, model=name, points=MC72_POINTS),
                lambda name=name: mc_body(lambda pp: make_circuit72(name, pp), MC72_POINTS,
-                                         make_circuit72(name, DECODER_P), dec_cfg=DEC_CFG_72))
+                                         calib72(name), dec_cfg=DEC_CFG_72))
 
     # §7.5 leave-one-out on the 72-code (spectra only; the Λ shares read these)
     for name in ABLATED:
         r.task(f"tech1_72_abl__{slug(name)}", dict(**base72, **grid, ablate=ABLATED[name], **is72, seed=5),
                lambda name=name: spectrum_body(make_ablated_circuit72(name, P_REF), weight_window_72,
                                                is72, seed=5, with_fit=False,
-                                               calib=make_ablated_circuit72(name, DECODER_P),
+                                               calib=calib72_abl(name),
                                                dec_cfg=DEC_CFG_72))
 
     # §8 the asymmetric operating point (meas, meas_idle x5), full + ablated, both codes.
@@ -550,25 +578,29 @@ def run_all(r: Runner, boost72=False):
             "18": (P, ROUNDS, weight_window_72, is72, DEC_CFG_18),
             "72": (BB_72_4_8, ROUNDS72, weight_window_72, is72, DEC_CFG_72)}.items():
         base = dict(code=repr(cp), p_ref=P_REF, rounds=rr,
-                    decoder=dict(**dcfg, calibrated_at=DECODER_P), scale=SCALE)
+                    decoder=dict(**dcfg, calibrated_at=DECODER_P, **calib_extra), scale=SCALE)
         r.task(f"asym__full_{label}", dict(**base, **grid, **cfg, seed=6),
                lambda cp=cp, rr=rr, window=window, cfg=cfg, dcfg=dcfg:
                    spectrum_body(make_full_asym(cp, rr, P_REF), window, cfg, seed=6, with_fit=False,
                                  calib=make_full_asym(cp, rr, DECODER_P), dec_cfg=dcfg))
         for abl_name, ch in ABLATED.items():
+            # asym rays are their own device: ablations share the full-asym calibration
             r.task(f"asym__{slug(abl_name)}_{label}", dict(**base, **grid, **cfg, ablate=ch, seed=6),
                    lambda cp=cp, rr=rr, window=window, cfg=cfg, ch=ch, dcfg=dcfg:
                        spectrum_body(make_abl_asym(cp, rr, ch, P_REF), window, cfg, seed=6, with_fit=False,
-                                     calib=make_abl_asym(cp, rr, ch, DECODER_P), dec_cfg=dcfg))
+                                     calib=(make_full_asym(cp, rr, DECODER_P) if device else
+                                            make_abl_asym(cp, rr, ch, DECODER_P)), dec_cfg=dcfg))
 
     # manifest: everything the report needs to interpret the files (written last = run complete)
     r.task("config__manifest",
            dict(code18=CODE18, code72=CODE72, p_ref=P_REF, rounds=ROUNDS, rounds72=ROUNDS72,
                 p_grid=P_GRID, mc_scale=MC_SCALE, decoder=dec18, scale=SCALE, boost72=boost72,
                 is18=IS18, is72=is72, window=WINDOW_RULE,
-                # key present ONLY under a split-decoder (system-level Λ) run, so baseline
-                # manifests keep their exact historical shape (cache stays config-fresh)
-                **({"decoder72": dec72} if dec72 != dec18 else {})),
+                # keys present ONLY under a split-decoder (system-level Λ) or device-calib
+                # run, so baseline manifests keep their exact historical shape (cache
+                # stays config-fresh)
+                **({"decoder72": dec72} if dec72 != dec18 else {}),
+                **({"calib": CALIB_MODE} if device else {})),
            lambda: dict(models=list(MODELS), ablated=list(ABLATED), channels=list(MODELS)[1:],
                         p_star=5e-4, p_lam=5e-4,
                         r_of={"CZ only": 1.0, "meas only": SCALE["meas"], "prep only": 1.0,

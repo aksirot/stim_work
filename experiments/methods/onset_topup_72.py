@@ -53,22 +53,29 @@ _SLUG2MODEL = {R.slug(n): n for n in R.MODELS}
 _SLUG2ABL = {R.slug(n): n for n in R.ABLATED}
 
 
-def build(name: str):
-    """(sampling circuit @ P_REF, calibration circuit @ DECODER_P) for a 72-code spectrum name."""
+def build(name: str, device: bool = False):
+    """(sampling circuit @ P_REF, calibration circuit @ DECODER_P) for a 72-code spectrum name.
+    device=True: EMC_CALIB=device convention — one decoder per device (full symmetric for
+    the symmetric family, full asym for the asym rays), matching the cached spectrum."""
     if name.startswith("tech1_72_abl__"):
         a = _SLUG2ABL[name[len("tech1_72_abl__"):]]
-        return R.make_ablated_circuit72(a, R.P_REF), R.make_ablated_circuit72(a, R.DECODER_P)
+        calib = (R.make_circuit72("full symmetric", R.DECODER_P) if device
+                 else R.make_ablated_circuit72(a, R.DECODER_P))
+        return R.make_ablated_circuit72(a, R.P_REF), calib
     if name.startswith("tech1_72__"):
         m = _SLUG2MODEL[name[len("tech1_72__"):]]
-        return R.make_circuit72(m, R.P_REF), R.make_circuit72(m, R.DECODER_P)
+        calib = (R.make_circuit72("full symmetric", R.DECODER_P) if device
+                 else R.make_circuit72(m, R.DECODER_P))
+        return R.make_circuit72(m, R.P_REF), calib
     if name.startswith("asym__") and name.endswith("_72"):
         x = name[len("asym__"):-len("_72")]
         if x == "full":
             return (R.make_full_asym(R.BB_72_4_8, R.ROUNDS72, R.P_REF),
                     R.make_full_asym(R.BB_72_4_8, R.ROUNDS72, R.DECODER_P))
         ch = R.ABLATED[_SLUG2ABL[x]]
-        return (R.make_abl_asym(R.BB_72_4_8, R.ROUNDS72, ch, R.P_REF),
-                R.make_abl_asym(R.BB_72_4_8, R.ROUNDS72, ch, R.DECODER_P))
+        calib = (R.make_full_asym(R.BB_72_4_8, R.ROUNDS72, R.DECODER_P) if device
+                 else R.make_abl_asym(R.BB_72_4_8, R.ROUNDS72, ch, R.DECODER_P))
+        return R.make_abl_asym(R.BB_72_4_8, R.ROUNDS72, ch, R.P_REF), calib
     raise ValueError(f"not a 72-code spectrum name: {name!r}")
 
 
@@ -81,7 +88,9 @@ def topup(name: str) -> None:
         f"{name}: cached decoder calibrated_at={dcfg.get('calibrated_at')} != DECODER_P={R.DECODER_P}"
     spec = j["result"]["spectrum"]
 
-    circ, calib = build(name)
+    # calibration convention comes from the CACHED spectrum (merging must match the
+    # decoder that produced the existing bins), not from the environment
+    circ, calib = build(name, device=dcfg.get("calib") == "device")
     probs, det_mat, obs_mat = _parse_dem(circ)
     col_to_mech, q_base, _ = _expand(probs, None)
     n_expanded = int(col_to_mech.shape[0])
