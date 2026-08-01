@@ -36,7 +36,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import run_error_model_comparison as R
 from importance_sampling import _parse_dem, _expand, _sample_failures_at_weight
 
-ONSET_WEIGHTS = list(range(2, 11))                              # w = 2..10
+# ONSET_WEIGHTS env: comma-separated weight list (default 2..10) — e.g. "3" for a
+# single targeted bin (the ghw_deep meas-only w=3 probe pattern).
+ONSET_WEIGHTS = [int(x) for x in
+                 os.environ.get("ONSET_WEIGHTS", ",".join(map(str, range(2, 11)))).split(",")]
 SHOTS_MAX = int(os.environ.get("ONSET_SHOTS_MAX", "3000000"))   # per-weight hard cap
 TARGET = int(os.environ.get("ONSET_TARGET", "20"))             # stop a weight once TARGET failures seen
 CHUNK = int(os.environ.get("ONSET_CHUNK", "50000"))            # sampling batch size

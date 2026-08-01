@@ -155,6 +155,7 @@ for GROUP in "${GROUPS_ARR[@]}"; do
     -e "EMC_DECODER=${TU_DEC}" -e "EMC_RESULTS=${SYS_RESULTS}"
     -e "ONSET_SHOTS_MAX=${ONSET_SHOTS_MAX:-3000000}"
     -e "ONSET_TARGET=${ONSET_TARGET:-20}"
+    -e "ONSET_WEIGHTS=${ONSET_WEIGHTS:-2,3,4,5,6,7,8,9,10}"
     -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"
     -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}"
     -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}"
