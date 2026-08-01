@@ -429,7 +429,13 @@ class Report:
             return label                           # not cached (e.g. stale-decoder quarantine)
         s = self.spectrum_of(r)
         w, f, t = (np.asarray(a) for a in (s.weights, s.failures, s.trials))
-        ax.plot(w[f > 0], (f / t)[f > 0], ".-", ms=4, lw=0.8, color=color, label=label)
+        hit = f > 0
+        fr = (f / t)[hit]
+        # 95% binomial CI; lower bars clipped above zero so log-scale rendering survives
+        # single-failure bins (whose CI floor would otherwise cross the axis)
+        se = 1.96 * np.sqrt(np.clip(fr * (1 - fr), 0, None) / t[hit])
+        ax.errorbar(w[hit], fr, yerr=[np.minimum(se, fr * 0.999), se], fmt=".-",
+                    ms=4, lw=0.8, elinewidth=0.7, capsize=1.5, color=color, label=label)
         z = f == 0
         if z.any():
             ax.plot(w[z], 0.5 / t[z], "x", color=color, alpha=0.4)
