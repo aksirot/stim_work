@@ -22,7 +22,13 @@ a NEGATIVE share is now printed with the evidence for whether it is real or an e
 artifact of the under-resolved 72-code onset bins.
 """
 import json
+import os
 from repo_paths import REPO_ROOT
+
+# EMC_REPORT_RESULTS: results dir the generated notebook reads (default = baseline).
+# EMC_REPORT_SUFFIX: appended to the notebook filename (e.g. "_device").
+RESULTS_NAME = os.environ.get("EMC_REPORT_RESULTS", "error_model_comparison_18_4_4")
+SUFFIX = os.environ.get("EMC_REPORT_SUFFIX", "")
 
 cells = []
 def md(s):   cells.append({"cell_type": "markdown", "metadata": {}, "source": s})
@@ -70,7 +76,7 @@ code(r'''# All loading, estimators, tables and figures live in src/emc_report.py
 # analysis layer, one method per cell of this report); R holds the cross-cell state.
 from emc_report import Report
 
-R = Report()          # loads runs/error_model_comparison_18_4_4 (config manifest + task cache)
+R = Report("''' + RESULTS_NAME + r'''")  # results dir baked in at generation time
 R.dem_counts()''')
 
 code(r'''R.runner_times()   # cached per-task wall time, grouped by section''')
@@ -388,6 +394,6 @@ nb = {"cells": cells,
       "metadata": {"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
                    "language_info": {"name": "python"}},
       "nbformat": 4, "nbformat_minor": 5}
-out = REPO_ROOT / "notebooks" / "methods" / "error_model_comparison_18_4_4.ipynb"
+out = REPO_ROOT / "notebooks" / "methods" / f"error_model_comparison_18_4_4{SUFFIX}.ipynb"
 out.write_text(json.dumps(nb, indent=1), encoding="utf-8")
 print(f"wrote {out} ({len(cells)} cells)")
