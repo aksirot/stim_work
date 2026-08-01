@@ -37,6 +37,9 @@ REPO="$PWD"
 
 SYS_RESULTS="${EMC_RESULTS:-error_model_comparison_18_4_4_sys_baseline18_ghw72}"
 BASELINE_NAME="error_model_comparison_18_4_4"
+# TOPUP_DECODER: decoder variant for the top-up (must match the campaign that filled
+# EMC_RESULTS — the topup script itself asserts calibrated_at + expansion identity).
+TU_DEC="${TOPUP_DECODER:-ghw}"
 
 # SAFETY: never point a ghw top-up at the baseline cache -- pooled ghw samples would
 # silently corrupt the baseline estimator. No override; this is never correct.
@@ -92,15 +95,18 @@ if [[ $DRY -eq 0 ]]; then
        -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}" \
        -v "${REPO}/experiments:/opt/stim_work/experiments${MOUNT_OPT}" \
        -v "${REPO}/runs:/opt/stim_work/runs${MOUNT_OPT}" \
-       -e EMC_DECODER=ghw -e "EMC_RESULTS=${SYS_RESULTS}" \
+       -e "EMC_DECODER=${TU_DEC}" -e "EMC_RESULTS=${SYS_RESULTS}" \
        -e PYTHONDONTWRITEBYTECODE=1 -w /opt/stim_work "${IMAGE}" \
        python -c "import sys; sys.path.insert(0, 'experiments/methods')
 import run_error_model_comparison as r
-assert (r.DECODER_18, r.DECODER_72) == ('ghw', 'ghw'), (r.DECODER_18, r.DECODER_72)
-assert r.DEC_CFG_18['pre_iter'] == 320 and r.DEC_CFG_18['gamma_dist_interval'] == (-0.5, 1.0)
+assert (r.DECODER_18, r.DECODER_72) == ('${TU_DEC}', '${TU_DEC}'), (r.DECODER_18, r.DECODER_72)
+if '${TU_DEC}' == 'ghw':
+    assert r.DEC_CFG_18['pre_iter'] == 320 and r.DEC_CFG_18['gamma_dist_interval'] == (-0.5, 1.0)
+if '${TU_DEC}' == 'ghw_deep':
+    assert r.DEC_CFG_18['pre_iter'] == 640 and r.DEC_CFG_18['num_sets'] == 1200
 assert r.RESULTS.name == '${SYS_RESULTS}', r.RESULTS
 assert (r.RESULTS / 'tech1_72__full_symmetric.json').exists(), 'sys cache tasks missing'
-print('ok: ghw both slots, sys cache present')" 2>&1)
+print('ok: ${TU_DEC} both slots, cache present')" 2>&1)
   PF_RC=$?
   set -e
   if [[ $PF_RC -eq 0 ]]; then
@@ -146,7 +152,7 @@ for GROUP in "${GROUPS_ARR[@]}"; do
   CMD=( podman run -d --name "$SNAME"
     -e "OMP_NUM_THREADS=${CPUS}" -e "OPENBLAS_NUM_THREADS=${CPUS}"
     -e "MKL_NUM_THREADS=${CPUS}" -e "RAYON_NUM_THREADS=${CPUS}"
-    -e EMC_DECODER=ghw -e "EMC_RESULTS=${SYS_RESULTS}"
+    -e "EMC_DECODER=${TU_DEC}" -e "EMC_RESULTS=${SYS_RESULTS}"
     -e "ONSET_SHOTS_MAX=${ONSET_SHOTS_MAX:-3000000}"
     -e "ONSET_TARGET=${ONSET_TARGET:-20}"
     -v "${REPO}/src:/opt/stim_work/src${MOUNT_OPT}"

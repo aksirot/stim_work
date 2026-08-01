@@ -86,6 +86,15 @@ DECODER_VARIANTS = {
     # paired parity check (nc1 vs nc5 above onset) shows no systematic b10 excess.
     "ghw_nc1": dict(pre_iter=320, num_sets=200, set_max_iter=120, gamma0=0.0625,
                     gamma_dist_interval=(-0.5, 1.0), stop_nconv=1),
+    # 2026-08-01 decoder-loop verified recommendation ("pre640_sets1200"): ZERO failures
+    # on all 90 sub-onset (w=3) library entries incl. 124 device-harvested channel
+    # specimens (double-pass certified), paired 10k vs nb_pre_x2 b01=3/b10=0 (strict
+    # win), best library risk 1.10e-2, and 24.2 dec/s at typical weights — the 1200
+    # sets engage only on hard syndromes (stop_nconv early exit), so it is FASTER than
+    # ghw in expectation. 72-code only (wide-interval caution as ghw). Evidence:
+    # runs/decoder_loop/{RECOMMENDATION.md, w3_certify.json, verify_pre640_sets1200.json}.
+    "ghw_deep": dict(pre_iter=640, num_sets=1200, set_max_iter=120, gamma0=0.0625,
+                     gamma_dist_interval=(-0.5, 1.0)),
 }
 # PER-CODE decoder selection (system-level Λ, 2026-07-28): each code runs its own best
 # VALIDATED config — Λ then measures the system (code + its decoder), not the code under
