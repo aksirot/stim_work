@@ -328,16 +328,29 @@ def phase_bench(ctx, lib, incumbent_cfg, deadline, smoke, report):
     # ranking is unaffected; the paired verify remains the promotion authority.
     MAX_BENCH = 200
     if len(supports) > MAX_BENCH:
-        low = np.nonzero(ws <= 8)[0]
-        tail = np.nonzero(ws > 8)[0]
+        # per-weight caps, rotating with the library size as seed: the low band gets
+        # the lion's share (it carries the risk signal) but is itself capped now that
+        # device specimens made it larger than the whole bench budget; onset_ub is
+        # exact only w.r.t. the sampled entries (bounds-only semantics, rotation
+        # covers the rest across iterations).
         srng = np.random.default_rng(lib.get("n", 0))
-        keep_tail = srng.choice(tail, size=min(len(tail), MAX_BENCH - len(low)),
-                                replace=False)
-        idx = np.sort(np.concatenate([low, keep_tail]))
+        CAP_LOW, CAP_TAIL_TOTAL = 25, 60
+        keep = []
+        for w in sorted(set(ws.tolist())):
+            if w > 8:
+                continue
+            idx_w = np.nonzero(ws == w)[0]
+            k = min(len(idx_w), CAP_LOW)
+            keep.append(srng.choice(idx_w, size=k, replace=False))
+        tail = np.nonzero(ws > 8)[0]
+        if len(tail):
+            keep.append(srng.choice(tail, size=min(len(tail), CAP_TAIL_TOTAL),
+                                    replace=False))
+        idx = np.sort(np.concatenate(keep))
         supports = [supports[i] for i in idx]
         ws = ws[idx]
-        print(f"[B] bench subsample: {len(low)} low-band (w<=8, all) + "
-              f"{len(keep_tail)} of {len(tail)} tail entries", flush=True)
+        print(f"[B] bench subsample: {len(idx)} of {lib['n']} entries "
+              f"(per-weight cap {CAP_LOW} at w<=8, {CAP_TAIL_TOTAL} tail)", flush=True)
     # LER-relevant entry weights: a failing entry at weight w costs ~P(W=w at p*)
     # (a w=3 miss is worth orders of magnitude more LER than a w=16 miss), split
     # evenly over the library's entries at that weight (entries ~ samples of their
