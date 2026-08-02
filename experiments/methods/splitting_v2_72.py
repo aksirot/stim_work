@@ -70,9 +70,13 @@ def main():
           f"({time.perf_counter()-t0:.0f}s)", flush=True)
 
     # --- the v2 ladder ---
+    # Budget note (2026-08-02): 3 ladders x 8 walkers x 3 local steps measured
+    # ~65+ min/sweep with ghw_deep (hard configs pay the full 1200-set ensemble) —
+    # 50 sweeps = days. Trimmed to land in ~half a day; the 3-ladder independence
+    # (the spread diagnostic) is the one knob deliberately kept.
     res, diag = replica_exchange_v2(
         circ, dec, p_ref=rmc.P_REF, p_high=0.008, p_low=1e-4, n_levels=16,
-        n_ladders=3, n_walkers=8, local_steps=3, n_sweeps=50, burn_in=15,
+        n_ladders=3, n_walkers=6, local_steps=2, n_sweeps=25, burn_in=8,
         anchor_shots=4000, distance=8, seed=42,
         seed_supports=supports, extra_logicals=logicals,
         gap_weights=[12, 20, 32], jump_every=1,
