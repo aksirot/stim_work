@@ -129,31 +129,42 @@ def main():
         n = lib_add([spec], "camp_ladder")
         print(f"[seed] camp w=9 specimen verified failing (+{n})", flush=True)
 
+    # LIB144_CENSUS_ONLY=1: skip harvest/strip (box 1 showed stripping w~73 harvests
+    # costs ~1.8k decodes per weight step — days to descend); grow the low-weight
+    # census outward from the existing floor entries instead (escapes cost tens of
+    # decodes per attempt at w~9).
+    census_only = os.environ.get("LIB144_CENSUS_ONLY") == "1"
+
     # harvest weight: climb from 40 until f_gen affordable
     w_h, f = 40, 0.0
-    while f < 0.004 and w_h < 140 and time.time() < deadline:
-        _, syn, tru = ctx.sample(rng, w_h, 500)
-        f = float(np.any(gen.decode_batch(syn) != tru, axis=1).mean())
-        if f < 0.004:
-            w_h += 10
-    print(f"[G] harvest weight w={w_h} (f_gen={f:.3g})", flush=True)
+    if census_only:
+        w_h, f = 0, 0.0
+        raw, minimal, shots = [], [], 0
+        print("[G] census-only mode: skipping harvest/strip", flush=True)
+    if not census_only:
+        while f < 0.004 and w_h < 140 and time.time() < deadline:
+            _, syn, tru = ctx.sample(rng, w_h, 500)
+            f = float(np.any(gen.decode_batch(syn) != tru, axis=1).mean())
+            if f < 0.004:
+                w_h += 10
+        print(f"[G] harvest weight w={w_h} (f_gen={f:.3g})", flush=True)
 
-    got, shots, raw = 0, 0, []
-    while got < 25 and shots < 100_000 and time.time() < deadline:
-        idx, syn, tru = ctx.sample(rng, w_h, 1_000)
-        bad = np.any(gen.decode_batch(syn) != tru, axis=1)
-        raw += [set(map(int, r)) for r in idx[bad][: 25 - got]]
-        got = len(raw); shots += 1_000
-        if shots % 5_000 == 0:
-            print(f"  [harvest] {shots} shots, {got} configs", flush=True)
-    print(f"[G] harvested {len(raw)} at w={w_h} in {shots} shots", flush=True)
+        got, shots, raw = 0, 0, []
+        while got < 25 and shots < 100_000 and time.time() < deadline:
+            idx, syn, tru = ctx.sample(rng, w_h, 1_000)
+            bad = np.any(gen.decode_batch(syn) != tru, axis=1)
+            raw += [set(map(int, r)) for r in idx[bad][: 25 - got]]
+            got = len(raw); shots += 1_000
+            if shots % 5_000 == 0:
+                print(f"  [harvest] {shots} shots, {got} configs", flush=True)
+        print(f"[G] harvested {len(raw)} at w={w_h} in {shots} shots", flush=True)
 
-    minimal = lockstep_strip(ctx, gen, raw, rng, deadline)
-    if minimal:
-        sizes = sorted(len(ctx.support(m)) for m in minimal)
-        print(f"[G] stripped: support weights {sizes[0]}..{sizes[-1]}", flush=True)
-    lib_add([ctx.support(m) for m in minimal], "campaign_harvest")
-    lib_save()
+        minimal = lockstep_strip(ctx, gen, raw, rng, deadline)
+        if minimal:
+            sizes = sorted(len(ctx.support(m)) for m in minimal)
+            print(f"[G] stripped: support weights {sizes[0]}..{sizes[-1]}", flush=True)
+        lib_add([ctx.support(m) for m in minimal], "campaign_harvest")
+        lib_save()
 
     def escape_cycle(pool_cfgs, n_escapes):
         bases = sorted(pool_cfgs, key=len)[:max(3, n_escapes // 3)]
