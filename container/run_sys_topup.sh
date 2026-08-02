@@ -57,7 +57,9 @@ LIST=0
 # balances the per-model cost estimates (gate idle ~100h | meas+prep ~84h |
 # full+CZ+meas_idle ~75h at the 3e6 cap), so the shards finish together-ish.
 SHARDS="${TOPUP_SHARDS:-4|2 3|0 1 5}"
-NAME="sys_topup72"
+# TOPUP_NAME: container-name prefix override, so STAGED launches (e.g. main models
+# now, ablations+asym when their spectra exist) don't collide on shard names.
+NAME="${TOPUP_NAME:-sys_topup72}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)  DRY=1; shift ;;
