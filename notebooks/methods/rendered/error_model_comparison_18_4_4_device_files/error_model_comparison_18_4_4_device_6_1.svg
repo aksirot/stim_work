@@ -1,0 +1,404 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3168 544" version="1.1">
+<g id="qubit_lines">
+<path id="qubit_line:0" d="M64,64 L3136,64 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="64">q0</text>
+<path id="qubit_line:1" d="M64,128 L3136,128 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="128">q1</text>
+<path id="qubit_line:2" d="M64,192 L3136,192 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="192">q2</text>
+<path id="qubit_line:3" d="M64,256 L3136,256 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="256">q3</text>
+<path id="qubit_line:4" d="M64,320 L3136,320 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="320">q4</text>
+<path id="qubit_line:5" d="M64,384 L3136,384 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="384">q5</text>
+<path id="qubit_line:6" d="M64,448 L3136,448 " stroke="black"/>
+<text dominant-baseline="central" text-anchor="end" font-family="monospace" font-size="12" x="64" y="448">q6</text>
+</g>
+<rect x="80" y="48" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="96" y="64" fill="white">R</text>
+<rect x="80" y="304" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="96" y="320" fill="white">R</text>
+<rect x="80" y="368" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="96" y="384" fill="white">R</text>
+<rect x="80" y="432" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="96" y="448" fill="white">R</text>
+<rect x="144" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="64">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="84" fill="darkorange" font-weight="bold">prep</text>
+<rect x="144" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="320">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="340" fill="darkorange" font-weight="bold">prep</text>
+<rect x="144" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="384">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="404" fill="darkorange" font-weight="bold">prep</text>
+<rect x="144" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="160" y="448">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="160" y="468" fill="darkorange" font-weight="bold">prep</text>
+<path d="M68,40 L68,32 L188,32 L188,40 " stroke="black" fill="none"/>
+<path d="M68,504 L68,512 L188,512 L188,504 " stroke="black" fill="none"/>
+<rect x="208" y="112" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="224" y="128" fill="white">R</text>
+<rect x="208" y="176" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="224" y="192" fill="white">R</text>
+<rect x="208" y="240" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="224" y="256" fill="white">R</text>
+<rect x="272" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="128">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="148" fill="darkorange" font-weight="bold">prep</text>
+<rect x="272" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="192">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="212" fill="darkorange" font-weight="bold">prep</text>
+<rect x="272" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="288" y="256">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="288" y="276" fill="darkorange" font-weight="bold">prep</text>
+<rect x="336" y="112" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="352" y="128">H</text>
+<rect x="336" y="176" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="352" y="192">H</text>
+<rect x="336" y="240" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="352" y="256">H</text>
+<rect x="400" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="148" fill="gray" font-weight="bold">1q</text>
+<rect x="400" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="212" fill="gray" font-weight="bold">1q</text>
+<rect x="400" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="256">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="276" fill="gray" font-weight="bold">1q</text>
+<rect x="400" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="416" y="64">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="416" y="84" fill="purple" font-weight="bold">g-idle</text>
+<path d="M196,40 L196,32 L444,32 L444,40 " stroke="black" fill="none"/>
+<path d="M196,504 L196,512 L444,512 L444,504 " stroke="black" fill="none"/>
+<path d="M480,64 L480,128 " stroke="black"/>
+<circle cx="480" cy="128" r="12" stroke="none" fill="black"/>
+<circle cx="480" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M468,64 L492,64 M480,52 L480,76 " stroke="black"/>
+<path d="M544,64 L544,128 " stroke="black"/>
+<rect x="528" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="544" y="128">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="544" y="148" fill="navy" font-weight="bold">cz</text>
+<rect x="528" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="544" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M452,40 L452,32 L572,32 L572,40 " stroke="black" fill="none"/>
+<path d="M452,504 L452,512 L572,512 L572,504 " stroke="black" fill="none"/>
+<path d="M608,64 L608,384 " stroke="black"/>
+<circle cx="608" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="608" cy="384" r="12" stroke="black" fill="white"/>
+<path d="M596,384 L620,384 M608,372 L608,396 " stroke="black"/>
+<path d="M672,64 L672,384 " stroke="black"/>
+<rect x="656" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="672" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="656" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="672" y="384">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="672" y="404" fill="navy" font-weight="bold">cz</text>
+<path d="M580,40 L580,32 L700,32 L700,40 " stroke="black" fill="none"/>
+<path d="M580,504 L580,512 L700,512 L700,504 " stroke="black" fill="none"/>
+<path d="M736,64 L736,320 " stroke="black"/>
+<circle cx="736" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="736" cy="320" r="12" stroke="black" fill="white"/>
+<path d="M724,320 L748,320 M736,308 L736,332 " stroke="black"/>
+<path d="M800,64 L800,320 " stroke="black"/>
+<rect x="784" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="800" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="784" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="800" y="320">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="800" y="340" fill="navy" font-weight="bold">cz</text>
+<path d="M708,40 L708,32 L828,32 L828,40 " stroke="black" fill="none"/>
+<path d="M708,504 L708,512 L828,512 L828,504 " stroke="black" fill="none"/>
+<path d="M864,64 L864,448 " stroke="black"/>
+<circle cx="864" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="864" cy="448" r="12" stroke="black" fill="white"/>
+<path d="M852,448 L876,448 M864,436 L864,460 " stroke="black"/>
+<path d="M928,64 L928,448 " stroke="black"/>
+<rect x="912" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="928" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="912" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="928" y="448">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="928" y="468" fill="navy" font-weight="bold">cz</text>
+<path d="M836,40 L836,32 L956,32 L956,40 " stroke="black" fill="none"/>
+<path d="M836,504 L836,512 L956,512 L956,504 " stroke="black" fill="none"/>
+<path d="M992,64 L992,256 " stroke="black"/>
+<circle cx="992" cy="256" r="12" stroke="none" fill="black"/>
+<circle cx="992" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M980,64 L1004,64 M992,52 L992,76 " stroke="black"/>
+<path d="M1056,64 L1056,256 " stroke="black"/>
+<rect x="1040" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1056" y="256">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1056" y="276" fill="navy" font-weight="bold">cz</text>
+<rect x="1040" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1056" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M964,40 L964,32 L1084,32 L1084,40 " stroke="black" fill="none"/>
+<path d="M964,504 L964,512 L1084,512 L1084,504 " stroke="black" fill="none"/>
+<rect x="1104" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1120" y="320">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1120" y="340" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1104" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1120" y="384">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1120" y="404" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1104" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1120" y="448">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1120" y="468" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1168" y="304" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1184" y="320" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1184" y="300">rec[0]</text>
+<rect x="1168" y="368" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1184" y="384" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1184" y="364">rec[1]</text>
+<rect x="1168" y="432" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1184" y="448" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1184" y="428">rec[2]</text>
+<path d="M1184,64 L1184,192 " stroke="black"/>
+<circle cx="1184" cy="192" r="12" stroke="none" fill="black"/>
+<circle cx="1184" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M1172,64 L1196,64 M1184,52 L1184,76 " stroke="black"/>
+<path d="M1248,64 L1248,192 " stroke="black"/>
+<rect x="1232" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1248" y="192">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1248" y="212" fill="navy" font-weight="bold">cz</text>
+<rect x="1232" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1248" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M1092,40 L1092,32 L1276,32 L1276,40 " stroke="black" fill="none"/>
+<path d="M1092,504 L1092,512 L1276,512 L1276,504 " stroke="black" fill="none"/>
+<rect x="1296" y="112" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1312" y="128">H</text>
+<rect x="1296" y="176" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1312" y="192">H</text>
+<rect x="1296" y="240" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1312" y="256">H</text>
+<rect x="1360" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1376" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1376" y="148" fill="gray" font-weight="bold">1q</text>
+<rect x="1360" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1376" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1376" y="212" fill="gray" font-weight="bold">1q</text>
+<rect x="1360" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1376" y="256">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1376" y="276" fill="gray" font-weight="bold">1q</text>
+<rect x="1424" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1440" y="128">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1440" y="148" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1424" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1440" y="192">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1440" y="212" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1424" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1440" y="256">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1440" y="276" fill="seagreen" font-weight="bold">meas</text>
+<rect x="1488" y="112" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="128" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1504" y="108">rec[3]</text>
+<rect x="1488" y="176" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="192" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1504" y="172">rec[4]</text>
+<rect x="1488" y="240" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="256" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="1504" y="236">rec[5]</text>
+<rect x="1488" y="304" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="320" fill="white">R</text>
+<rect x="1488" y="368" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="384" fill="white">R</text>
+<rect x="1488" y="432" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1504" y="448" fill="white">R</text>
+<rect x="1552" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="320">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="340" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1552" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="384">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="404" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1552" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="448">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="468" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1552" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1568" y="64">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1568" y="84" fill="mediumvioletred" font-weight="bold">m-idle</text>
+<path d="M1284,40 L1284,32 L1596,32 L1596,40 " stroke="black" fill="none"/>
+<path d="M1284,504 L1284,512 L1596,512 L1596,504 " stroke="black" fill="none"/>
+<rect x="1616" y="112" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1632" y="128" fill="white">R</text>
+<rect x="1616" y="176" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1632" y="192" fill="white">R</text>
+<rect x="1616" y="240" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1632" y="256" fill="white">R</text>
+<rect x="1680" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="128">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="148" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1680" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="192">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="212" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1680" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1696" y="256">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1696" y="276" fill="darkorange" font-weight="bold">prep</text>
+<rect x="1744" y="112" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1760" y="128">H</text>
+<rect x="1744" y="176" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1760" y="192">H</text>
+<rect x="1744" y="240" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="1760" y="256">H</text>
+<rect x="1808" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="148" fill="gray" font-weight="bold">1q</text>
+<rect x="1808" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="212" fill="gray" font-weight="bold">1q</text>
+<rect x="1808" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="256">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="276" fill="gray" font-weight="bold">1q</text>
+<rect x="1808" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1824" y="64">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1824" y="84" fill="purple" font-weight="bold">g-idle</text>
+<path d="M1604,40 L1604,32 L1852,32 L1852,40 " stroke="black" fill="none"/>
+<path d="M1604,504 L1604,512 L1852,512 L1852,504 " stroke="black" fill="none"/>
+<path d="M1888,64 L1888,128 " stroke="black"/>
+<circle cx="1888" cy="128" r="12" stroke="none" fill="black"/>
+<circle cx="1888" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M1876,64 L1900,64 M1888,52 L1888,76 " stroke="black"/>
+<path d="M1952,64 L1952,128 " stroke="black"/>
+<rect x="1936" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="128">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="1952" y="148" fill="navy" font-weight="bold">cz</text>
+<rect x="1936" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="1952" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M1860,40 L1860,32 L1980,32 L1980,40 " stroke="black" fill="none"/>
+<path d="M1860,504 L1860,512 L1980,512 L1980,504 " stroke="black" fill="none"/>
+<path d="M2016,64 L2016,384 " stroke="black"/>
+<circle cx="2016" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="2016" cy="384" r="12" stroke="black" fill="white"/>
+<path d="M2004,384 L2028,384 M2016,372 L2016,396 " stroke="black"/>
+<path d="M2080,64 L2080,384 " stroke="black"/>
+<rect x="2064" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2080" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="2064" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2080" y="384">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2080" y="404" fill="navy" font-weight="bold">cz</text>
+<path d="M1988,40 L1988,32 L2108,32 L2108,40 " stroke="black" fill="none"/>
+<path d="M1988,504 L1988,512 L2108,512 L2108,504 " stroke="black" fill="none"/>
+<path d="M2144,64 L2144,320 " stroke="black"/>
+<circle cx="2144" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="2144" cy="320" r="12" stroke="black" fill="white"/>
+<path d="M2132,320 L2156,320 M2144,308 L2144,332 " stroke="black"/>
+<path d="M2208,64 L2208,320 " stroke="black"/>
+<rect x="2192" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2208" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="2192" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2208" y="320">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2208" y="340" fill="navy" font-weight="bold">cz</text>
+<path d="M2116,40 L2116,32 L2236,32 L2236,40 " stroke="black" fill="none"/>
+<path d="M2116,504 L2116,512 L2236,512 L2236,504 " stroke="black" fill="none"/>
+<path d="M2272,64 L2272,448 " stroke="black"/>
+<circle cx="2272" cy="64" r="12" stroke="none" fill="black"/>
+<circle cx="2272" cy="448" r="12" stroke="black" fill="white"/>
+<path d="M2260,448 L2284,448 M2272,436 L2272,460 " stroke="black"/>
+<path d="M2336,64 L2336,448 " stroke="black"/>
+<rect x="2320" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2336" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<rect x="2320" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2336" y="448">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2336" y="468" fill="navy" font-weight="bold">cz</text>
+<path d="M2244,40 L2244,32 L2364,32 L2364,40 " stroke="black" fill="none"/>
+<path d="M2244,504 L2244,512 L2364,512 L2364,504 " stroke="black" fill="none"/>
+<path d="M2400,64 L2400,256 " stroke="black"/>
+<circle cx="2400" cy="256" r="12" stroke="none" fill="black"/>
+<circle cx="2400" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M2388,64 L2412,64 M2400,52 L2400,76 " stroke="black"/>
+<path d="M2464,64 L2464,256 " stroke="black"/>
+<rect x="2448" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2464" y="256">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2464" y="276" fill="navy" font-weight="bold">cz</text>
+<rect x="2448" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2464" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M2372,40 L2372,32 L2492,32 L2492,40 " stroke="black" fill="none"/>
+<path d="M2372,504 L2372,512 L2492,512 L2492,504 " stroke="black" fill="none"/>
+<rect x="2512" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2528" y="320">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2528" y="340" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2512" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2528" y="384">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2528" y="404" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2512" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2528" y="448">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2528" y="468" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2576" y="304" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2592" y="320" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2592" y="300">rec[6]</text>
+<rect x="2576" y="368" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2592" y="384" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2592" y="364">rec[7]</text>
+<rect x="2576" y="432" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2592" y="448" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2592" y="428">rec[8]</text>
+<path d="M2592,64 L2592,192 " stroke="black"/>
+<circle cx="2592" cy="192" r="12" stroke="none" fill="black"/>
+<circle cx="2592" cy="64" r="12" stroke="black" fill="white"/>
+<path d="M2580,64 L2604,64 M2592,52 L2592,76 " stroke="black"/>
+<path d="M2656,64 L2656,192 " stroke="black"/>
+<rect x="2640" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2656" y="192">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2656" y="212" fill="navy" font-weight="bold">cz</text>
+<rect x="2640" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2656" y="64">DEP<tspan baseline-shift="sub" font-size="10">2</tspan></text>
+<path d="M2500,40 L2500,32 L2684,32 L2684,40 " stroke="black" fill="none"/>
+<path d="M2500,504 L2500,512 L2684,512 L2684,504 " stroke="black" fill="none"/>
+<rect x="2704" y="112" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2720" y="128">H</text>
+<rect x="2704" y="176" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2720" y="192">H</text>
+<rect x="2704" y="240" width="32" height="32" stroke="black" fill="white"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2720" y="256">H</text>
+<rect x="2768" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2784" y="128">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2784" y="148" fill="gray" font-weight="bold">1q</text>
+<rect x="2768" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2784" y="192">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2784" y="212" fill="gray" font-weight="bold">1q</text>
+<rect x="2768" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2784" y="256">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2784" y="276" fill="gray" font-weight="bold">1q</text>
+<rect x="2832" y="112" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2848" y="128">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2848" y="148" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2832" y="176" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2848" y="192">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2848" y="212" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2832" y="240" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2848" y="256">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2848" y="276" fill="seagreen" font-weight="bold">meas</text>
+<rect x="2896" y="112" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="128" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2912" y="108">rec[9]</text>
+<rect x="2896" y="176" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="192" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2912" y="172">rec[10]</text>
+<rect x="2896" y="240" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="256" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="2912" y="236">rec[11]</text>
+<rect x="2896" y="304" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="320" fill="white">R</text>
+<rect x="2896" y="368" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="384" fill="white">R</text>
+<rect x="2896" y="432" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="2912" y="448" fill="white">R</text>
+<rect x="2960" y="304" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2976" y="320">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2976" y="340" fill="darkorange" font-weight="bold">prep</text>
+<rect x="2960" y="368" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2976" y="384">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2976" y="404" fill="darkorange" font-weight="bold">prep</text>
+<rect x="2960" y="432" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2976" y="448">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2976" y="468" fill="darkorange" font-weight="bold">prep</text>
+<rect x="2960" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="2976" y="64">DEP<tspan baseline-shift="sub" font-size="10">1</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="2976" y="84" fill="mediumvioletred" font-weight="bold">m-idle</text>
+<path d="M2692,40 L2692,32 L3004,32 L3004,40 " stroke="black" fill="none"/>
+<path d="M2692,504 L2692,512 L3004,512 L3004,504 " stroke="black" fill="none"/>
+<rect x="3024" y="48" width="32" height="32" stroke="black" fill="pink"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="12" x="3040" y="64">ERR<tspan baseline-shift="sub" font-size="10">X</tspan></text>
+<text dominant-baseline="hanging" text-anchor="middle" font-family="monospace" font-size="10" stroke="red" x="3040" y="84" fill="seagreen" font-weight="bold">meas</text>
+<rect x="3088" y="48" width="32" height="32" stroke="black" fill="black"/>
+<text dominant-baseline="central" text-anchor="middle" font-family="monospace" font-size="30" x="3104" y="64" fill="white">M</text>
+<text text-anchor="middle" font-family="monospace" font-size="8" x="3104" y="44">rec[12]</text>
+<path d="M3012,40 L3012,32 L3132,32 L3132,40 " stroke="black" fill="none"/>
+<path d="M3012,504 L3012,512 L3132,512 L3132,504 " stroke="black" fill="none"/>
+</svg>
