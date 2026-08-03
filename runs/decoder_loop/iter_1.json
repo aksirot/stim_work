@@ -1,0 +1,211 @@
+{
+ "iteration": 1,
+ "incumbent": "ghw",
+ "smoke": false,
+ "generate": {
+  "harvest_weight": 16,
+  "f_gen": 0.022,
+  "added": 56,
+  "w_hat": 4,
+  "census": 9,
+  "census_ok": false,
+  "w_hist": {
+   "4": 1,
+   "5": 8,
+   "6": 4,
+   "8": 4,
+   "9": 3,
+   "12": 4,
+   "13": 4,
+   "14": 8,
+   "15": 8,
+   "16": 12
+  }
+ },
+ "bench": {
+  "n_candidates": 19,
+  "library_n": 56,
+  "ranking": [
+   {
+    "name": "nb_pre_half",
+    "fixes": 48,
+    "fails": 8,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 5
+   },
+   {
+    "name": "nb_pre_x2",
+    "fixes": 47,
+    "fails": 9,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 5
+   },
+   {
+    "name": "nb_g0_x2",
+    "fixes": 47,
+    "fails": 9,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 5
+   },
+   {
+    "name": "nb_g0_half",
+    "fixes": 47,
+    "fails": 9,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "incumbent",
+    "fixes": 43,
+    "fails": 13,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets200",
+    "fixes": 43,
+    "fails": 13,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets600_paper",
+    "fixes": 43,
+    "fails": 13,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "heavy",
+    "fixes": 42,
+    "fails": 14,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "pre320",
+    "fixes": 41,
+    "fails": 15,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets60",
+    "fixes": 40,
+    "fails": 16,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "gamma_hi",
+    "fixes": 39,
+    "fails": 17,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "pre160",
+    "fixes": 38,
+    "fails": 18,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "iter120",
+    "fixes": 38,
+    "fails": 18,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "baseline",
+    "fixes": 37,
+    "fails": 19,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "nconv1",
+    "fixes": 37,
+    "fails": 19,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "nconv9",
+    "fixes": 37,
+    "fails": 19,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "gamma_lo",
+    "fixes": 37,
+    "fails": 19,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets5",
+    "fixes": 31,
+    "fails": 25,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "wide_interval",
+    "fixes": 27,
+    "fails": 29,
+    "n": 56,
+    "rate": null,
+    "w_onset_ub": 4
+   }
+  ]
+ },
+ "verify": {
+  "challengers": [
+   {
+    "name": "nb_pre_half",
+    "shots": 8000,
+    "inc_fails": 3,
+    "ch_fails": 11,
+    "b01": 1,
+    "b10": 9,
+    "lib_margin": 5,
+    "p_regress": 0.0107,
+    "passes": false
+   },
+   {
+    "name": "nb_pre_x2",
+    "shots": 0,
+    "inc_fails": 0,
+    "ch_fails": 0,
+    "b01": 0,
+    "b10": 0,
+    "lib_margin": 4,
+    "p_regress": 1.0,
+    "passes": true
+   }
+  ],
+  "promoted": "nb_pre_x2"
+ },
+ "elapsed_s": 3715.8
+}

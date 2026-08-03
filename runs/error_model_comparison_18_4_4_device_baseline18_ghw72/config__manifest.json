@@ -1,0 +1,90 @@
+{
+ "config": {
+  "code18": "BBCodeParams(l=3, m=3, a_exps=[(1, 0), (0, 0), (0, 2)], b_exps=[(0, 1), (0, 0), (2, 0)], distance=4)",
+  "code72": "BBCodeParams(l=6, m=6, a_exps=[(1, 0), (0, 0), (0, 2)], b_exps=[(0, 1), (0, 0), (2, 0)], distance=8)",
+  "p_ref": 0.01,
+  "rounds": 2,
+  "rounds72": 4,
+  "p_grid": {
+   "lo": 0.0001,
+   "hi": 0.04,
+   "n": 44
+  },
+  "mc_scale": 0.15,
+  "decoder": {
+   "gamma0": 0.125,
+   "pre_iter": 80,
+   "num_sets": 20,
+   "set_max_iter": 60,
+   "gamma_dist_interval": [
+    -0.24,
+    0.66
+   ],
+   "stop_nconv": 5,
+   "calibrated_at": 0.0005
+  },
+  "scale": {
+   "meas": 5.0,
+   "meas_idle": 5.0
+  },
+  "boost72": false,
+  "is18": {
+   "target_failures": 200,
+   "shots_max": 30000
+  },
+  "is72": {
+   "target_failures": 100,
+   "shots_max": 10000,
+   "stop_after_zero_bins": 3
+  },
+  "window": "w_hi=ceil(mu+4*sqrt(mu)) at p_grid.max(); 18: 1..max(10,w_hi); 72: 1..15 + 16..w_hi step 2",
+  "decoder72": {
+   "gamma0": 0.0625,
+   "pre_iter": 320,
+   "num_sets": 200,
+   "set_max_iter": 120,
+   "gamma_dist_interval": [
+    -0.5,
+    1.0
+   ],
+   "stop_nconv": 5,
+   "calibrated_at": 0.0005
+  },
+  "calib": "device"
+ },
+ "elapsed_s": 1.379998866468668e-05,
+ "finished_at": "2026-08-01T18:57:50",
+ "result": {
+  "models": [
+   "full symmetric",
+   "CZ only",
+   "meas only",
+   "prep only",
+   "gate idle",
+   "meas idle"
+  ],
+  "ablated": [
+   "no CZ",
+   "no meas",
+   "no prep",
+   "no gate idle",
+   "no meas idle"
+  ],
+  "channels": [
+   "CZ only",
+   "meas only",
+   "prep only",
+   "gate idle",
+   "meas idle"
+  ],
+  "p_star": 0.0005,
+  "p_lam": 0.0005,
+  "r_of": {
+   "CZ only": 1.0,
+   "meas only": 5.0,
+   "prep only": 1.0,
+   "gate idle": 1.0,
+   "meas idle": 5.0
+  }
+ }
+}

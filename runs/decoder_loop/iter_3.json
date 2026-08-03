@@ -1,0 +1,190 @@
+{
+ "iteration": 3,
+ "incumbent": "ghw",
+ "smoke": false,
+ "generate": {
+  "harvest_weight": 16,
+  "f_gen": 0.022,
+  "added": 40,
+  "w_hat": 4,
+  "census": 14,
+  "census_ok": true,
+  "w_hist": {
+   "4": 1,
+   "5": 13,
+   "6": 5,
+   "7": 1,
+   "8": 4,
+   "9": 5,
+   "10": 3,
+   "11": 7,
+   "12": 11,
+   "13": 13,
+   "14": 23,
+   "15": 24,
+   "16": 45
+  }
+ },
+ "bench": {
+  "n_candidates": 16,
+  "library_n": 155,
+  "ranking": [
+   {
+    "name": "heavy",
+    "fixes": 134,
+    "fails": 21,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets200",
+    "fixes": 133,
+    "fails": 22,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets600_paper",
+    "fixes": 133,
+    "fails": 22,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "nb_pre_x2",
+    "fixes": 133,
+    "fails": 22,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 5
+   },
+   {
+    "name": "sets60",
+    "fixes": 128,
+    "fails": 27,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "pre320",
+    "fixes": 126,
+    "fails": 29,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "gamma_hi",
+    "fixes": 122,
+    "fails": 33,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "baseline",
+    "fixes": 121,
+    "fails": 34,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "iter120",
+    "fixes": 121,
+    "fails": 34,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "nconv9",
+    "fixes": 121,
+    "fails": 34,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "nconv1",
+    "fixes": 120,
+    "fails": 35,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "pre160",
+    "fixes": 119,
+    "fails": 36,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "incumbent",
+    "fixes": 116,
+    "fails": 39,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "gamma_lo",
+    "fixes": 115,
+    "fails": 40,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "sets5",
+    "fixes": 97,
+    "fails": 58,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   },
+   {
+    "name": "wide_interval",
+    "fixes": 92,
+    "fails": 63,
+    "n": 155,
+    "rate": null,
+    "w_onset_ub": 4
+   }
+  ]
+ },
+ "verify": {
+  "challengers": [
+   {
+    "name": "heavy",
+    "shots": 2000,
+    "inc_fails": 0,
+    "ch_fails": 0,
+    "b01": 0,
+    "b10": 0,
+    "lib_margin": 18,
+    "p_regress": 1.0,
+    "passes": true
+   },
+   {
+    "name": "sets200",
+    "shots": 0,
+    "inc_fails": 0,
+    "ch_fails": 0,
+    "b01": 0,
+    "b10": 0,
+    "lib_margin": 17,
+    "p_regress": 1.0,
+    "passes": false
+   }
+  ],
+  "promoted": "heavy"
+ },
+ "elapsed_s": 4647.8
+}

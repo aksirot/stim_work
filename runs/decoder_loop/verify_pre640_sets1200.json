@@ -1,0 +1,31 @@
+{
+ "candidate": "pre640_sets1200",
+ "cfg": {
+  "gamma0": 0.0625,
+  "pre_iter": 640,
+  "num_sets": 1200,
+  "set_max_iter": 120,
+  "gamma_dist_interval": [
+   -0.5,
+   1.0
+  ],
+  "stop_nconv": 5
+ },
+ "verify": {
+  "shots": 10000,
+  "rival": "nb_pre_x2",
+  "rival_fails": 17,
+  "cand_fails": 14,
+  "b01": 3,
+  "b10": 0,
+  "p_regress": 1.0,
+  "passes": true
+ },
+ "library": {
+  "n": 524,
+  "fixes": 470,
+  "risk": 0.010968776663879494,
+  "w3_fails": 0,
+  "rate": 24.2
+ }
+}

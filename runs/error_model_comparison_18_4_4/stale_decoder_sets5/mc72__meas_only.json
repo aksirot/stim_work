@@ -1,0 +1,33 @@
+{
+ "config": {
+  "code": "BBCodeParams(l=6, m=6, a_exps=[(1, 0), (0, 0), (0, 2)], b_exps=[(0, 1), (0, 0), (2, 0)], distance=8)",
+  "p_ref": 0.01,
+  "rounds": 4,
+  "decoder": {
+   "gamma0": 0.125,
+   "pre_iter": 80,
+   "num_sets": 5,
+   "set_max_iter": 60,
+   "gamma_dist_interval": [
+    -0.24,
+    0.66
+   ],
+   "stop_nconv": 3
+  },
+  "model": "meas only",
+  "points": {
+   "0.008": 10000
+  }
+ },
+ "elapsed_s": 3.378596700000344,
+ "finished_at": "2026-07-09T18:41:13",
+ "result": {
+  "points": {
+   "0.008": [
+    0.0001,
+    9.999499987499375e-05,
+    10000
+   ]
+  }
+ }
+}

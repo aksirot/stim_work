@@ -1,0 +1,30 @@
+{
+ "config": {
+  "code": "BBCodeParams(l=6, m=6, a_exps=[(1, 0), (0, 0), (0, 2)], b_exps=[(0, 1), (0, 0), (2, 0)], distance=8)",
+  "p_ref": 0.01,
+  "rounds": 4,
+  "decoder": {
+   "gamma0": 0.125,
+   "pre_iter": 80,
+   "num_sets": 20,
+   "set_max_iter": 60,
+   "gamma_dist_interval": [
+    -0.24,
+    0.66
+   ],
+   "stop_nconv": 5,
+   "calibrated_at": 0.0005
+  },
+  "model": "prep only"
+ },
+ "elapsed_s": 0.08954559592530131,
+ "finished_at": "2026-07-24T22:42:07",
+ "result": {
+  "D": 8,
+  "f0_lower": 3.05128198086692e-07,
+  "w0": 4,
+  "n_LD_lower": 6,
+  "n_expanded": 360,
+  "f0_lower_note": "lower bound f0* >= fails/C(N,w0) from 6 partial weight-8 logicals (max_trials=300)"
+ }
+}

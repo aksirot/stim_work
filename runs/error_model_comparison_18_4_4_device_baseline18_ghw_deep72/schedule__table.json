@@ -1,0 +1,13 @@
+{
+ "config": {
+  "code": "BBCodeParams(l=3, m=3, a_exps=[(1, 0), (0, 0), (0, 2)], b_exps=[(0, 1), (0, 0), (2, 0)], distance=4)",
+  "p_ref": 0.01,
+  "rounds": 2,
+  "n_show": 12
+ },
+ "elapsed_s": 0.027706735767424107,
+ "finished_at": "2026-07-28T19:08:02",
+ "result": {
+  "table": "layer |       data q0 (L)        |       data q9 (R)        |        X-anc q18         |        Z-anc q27        \n--------------------------------------------------------------------------------------------------------------------\n    0 |         R \u00b7prep          |         R \u00b7prep          |            \u2014             |         R \u00b7prep         \n    1 |        \u00b7gate_idle        |        CX\u219230 \u00b7cz         |   R \u00b7prep H \u00b7(1q gate)   |        CX\u219015 \u00b7cz        \n    2 |        CX\u219018 \u00b7cz         |        CX\u219229 \u00b7cz         |         CX\u21920 \u00b7cz         |        CX\u219010 \u00b7cz        \n    3 |        CX\u219228 \u00b7cz         |        CX\u219018 \u00b7cz         |         CX\u21929 \u00b7cz         |         CX\u21902 \u00b7cz        \n    4 |        CX\u219227 \u00b7cz         |        CX\u219020 \u00b7cz         |        CX\u219210 \u00b7cz         |         CX\u21900 \u00b7cz        \n    5 |        CX\u219233 \u00b7cz         |        CX\u219021 \u00b7cz         |        CX\u219215 \u00b7cz         |         CX\u21903 \u00b7cz        \n    6 |        CX\u219024 \u00b7cz         |        CX\u219227 \u00b7cz         |         CX\u21923 \u00b7cz         |         CX\u21909 \u00b7cz        \n    7 |        CX\u219019 \u00b7cz         |        \u00b7gate_idle        |         CX\u21922 \u00b7cz         |         \u00b7meas M         \n    8 |        \u00b7meas_idle        |        \u00b7meas_idle        |   H \u00b7(1q gate) \u00b7meas M   |         R \u00b7prep         \n    9 |        \u00b7gate_idle        |        CX\u219230 \u00b7cz         |   R \u00b7prep H \u00b7(1q gate)   |        CX\u219015 \u00b7cz        \n   10 |        CX\u219018 \u00b7cz         |        CX\u219229 \u00b7cz         |         CX\u21920 \u00b7cz         |        CX\u219010 \u00b7cz        \n   11 |        CX\u219228 \u00b7cz         |        CX\u219018 \u00b7cz         |         CX\u21929 \u00b7cz         |         CX\u21902 \u00b7cz        "
+ }
+}

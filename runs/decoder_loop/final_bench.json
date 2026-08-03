@@ -1,0 +1,97 @@
+{
+ "library_n": 356,
+ "q_star": 3.348993394284294e-05,
+ "rows": [
+  {
+   "kind": "single",
+   "name": "baseline",
+   "fixes": 292,
+   "n": 356,
+   "risk": 0.05151579645019361,
+   "w3_fails": 7,
+   "w3_n": 64,
+   "onset_ub": 3,
+   "rate": 49.4
+  },
+  {
+   "kind": "single",
+   "name": "ghw",
+   "fixes": 286,
+   "n": 356,
+   "risk": 0.06259752833101488,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 4,
+   "rate": 14.0
+  },
+  {
+   "kind": "single",
+   "name": "heavy",
+   "fixes": 317,
+   "n": 356,
+   "risk": 0.04740701812516547,
+   "w3_fails": 5,
+   "w3_n": 64,
+   "onset_ub": 3,
+   "rate": 31.8
+  },
+  {
+   "kind": "single",
+   "name": "nb_pre_x2",
+   "fixes": 314,
+   "n": 356,
+   "risk": 0.011234243727091834,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 5,
+   "rate": 12.3
+  },
+  {
+   "kind": "single",
+   "name": "nb_g0_x2",
+   "fixes": 322,
+   "n": 356,
+   "risk": 0.03333019996054263,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 4,
+   "rate": 8.6
+  },
+  {
+   "kind": "portfolio",
+   "name": "ghw+nb_g0_x2",
+   "fixes": 319,
+   "n": 356,
+   "risk": 0.03428634552915646,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 4,
+   "rate": 4.0,
+   "oracle_fixes": 329
+  },
+  {
+   "kind": "portfolio",
+   "name": "heavy+nb_g0_x2",
+   "fixes": 330,
+   "n": 356,
+   "risk": 0.03367464182160839,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 4,
+   "rate": 5.4,
+   "oracle_fixes": 334
+  },
+  {
+   "kind": "portfolio",
+   "name": "ghw+heavy+nb_g0_x2",
+   "fixes": 329,
+   "n": 356,
+   "risk": 0.034630396631377,
+   "w3_fails": 0,
+   "w3_n": 64,
+   "onset_ub": 4,
+   "rate": 3.3,
+   "oracle_fixes": 335
+  }
+ ]
+}

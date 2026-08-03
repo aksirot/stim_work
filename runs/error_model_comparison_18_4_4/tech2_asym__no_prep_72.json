@@ -1,0 +1,19 @@
+{
+ "config": {
+  "source": "compute_f0_lower_asym_72.py",
+  "seed": 1,
+  "max_trials": 300,
+  "max_restrictions": 5000000
+ },
+ "elapsed_s": 121.16798734664917,
+ "finished_at": "2026-07-27T10:26:22",
+ "result": {
+  "D": 8,
+  "w0": 4,
+  "f0_lower": 3.9793240480230095e-08,
+  "n_LD_lower": 6,
+  "n_expanded": 77076,
+  "D_note": "BP-OSD upper bound computed here (no cached 72-code ablation distance)",
+  "f0_lower_note": "lower bound f0* >= fails/C(N,w0) from 6 partial weight-8 logicals (max_trials=300), x5-ray multiplicities"
+ }
+}

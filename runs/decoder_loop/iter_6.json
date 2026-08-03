@@ -1,0 +1,98 @@
+{
+ "iteration": 6,
+ "incumbent": "nb_pre_x2",
+ "smoke": false,
+ "generate": {
+  "harvest_weight": 16,
+  "f_gen": 0.025,
+  "added": 43,
+  "w_hat": 3,
+  "census": 66,
+  "census_ok": true,
+  "w_hist": {
+   "3": 64,
+   "4": 2,
+   "5": 16,
+   "6": 7,
+   "7": 4,
+   "8": 7,
+   "9": 8,
+   "10": 11,
+   "11": 11,
+   "12": 22,
+   "13": 19,
+   "14": 53,
+   "15": 41,
+   "16": 91
+  }
+ },
+ "bench": {
+  "n_candidates": 5,
+  "library_n": 200,
+  "ranking": [
+   {
+    "name": "nb_g0_x2",
+    "fixes": 180,
+    "fails": 20,
+    "n": 200,
+    "risk": 0.04346614297899851,
+    "rate": null,
+    "w_onset_ub": 3
+   },
+   {
+    "name": "incumbent",
+    "fixes": 177,
+    "fails": 23,
+    "n": 200,
+    "risk": 0.04537765259884016,
+    "rate": null,
+    "w_onset_ub": 3
+   },
+   {
+    "name": "nb_g0_half",
+    "fixes": 176,
+    "fails": 24,
+    "n": 200,
+    "risk": 0.047407426033119926,
+    "rate": null,
+    "w_onset_ub": 3
+   },
+   {
+    "name": "nb_pre_half",
+    "fixes": 175,
+    "fails": 25,
+    "n": 200,
+    "risk": 0.04740742603342437,
+    "rate": null,
+    "w_onset_ub": 3
+   },
+   {
+    "name": "nb_pre_x2",
+    "fixes": 175,
+    "fails": 25,
+    "n": 200,
+    "risk": 0.0723180526188096,
+    "rate": null,
+    "w_onset_ub": 3
+   }
+  ]
+ },
+ "verify": {
+  "challengers": [
+   {
+    "name": "nb_g0_x2",
+    "shots": 10000,
+    "inc_fails": 5,
+    "ch_fails": 5,
+    "b01": 2,
+    "b10": 2,
+    "lib_margin": 3,
+    "risk_gain": 0.042,
+    "p_regress": 0.6875,
+    "passes": true
+   }
+  ],
+  "promoted": "nb_g0_x2"
+ },
+ "elapsed_s": 2706.6
+}

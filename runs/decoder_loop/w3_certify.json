@@ -1,0 +1,117 @@
+{
+ "n_w3": 90,
+ "results": {
+  "ghw": {
+   "kind": "single",
+   "fails": 26,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "device_topup_meas_only": 9,
+    "device_topup_prep_only": 11,
+    "device_topup_gate_idle": 6
+   }
+  },
+  "nb_pre_x2": {
+   "kind": "single",
+   "fails": 10,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "device_topup_meas_only": 4,
+    "device_topup_prep_only": 3,
+    "device_topup_gate_idle": 3
+   }
+  },
+  "heavy": {
+   "kind": "single",
+   "fails": 24,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "w3_harvest_meas_only": 2,
+    "w3_harvest_full_symmetric": 3,
+    "device_topup_meas_only": 7,
+    "device_topup_prep_only": 8,
+    "device_topup_gate_idle": 4
+   }
+  },
+  "pre640_sets600": {
+   "kind": "single",
+   "fails": 1,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "device_topup_prep_only": 1
+   }
+  },
+  "pre640_heavygamma": {
+   "kind": "single",
+   "fails": 22,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "w3_harvest_meas_only": 1,
+    "w3_harvest_full_symmetric": 3,
+    "device_topup_meas_only": 7,
+    "device_topup_prep_only": 8,
+    "device_topup_gate_idle": 3
+   }
+  },
+  "pre1280_sets600": {
+   "kind": "single",
+   "fails": 1,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "device_topup_prep_only": 1
+   }
+  },
+  "pre640_iter240": {
+   "kind": "single",
+   "fails": 9,
+   "n": 90,
+   "flaky": 0,
+   "by_gen": {
+    "w3_harvest_full_symmetric": 1,
+    "device_topup_meas_only": 1,
+    "device_topup_prep_only": 5,
+    "device_topup_gate_idle": 2
+   }
+  },
+  "ghw+nb_pre_x2": {
+   "kind": "portfolio",
+   "fails": 11,
+   "n": 90,
+   "flaky": 0,
+   "oracle_fails": 10,
+   "by_gen": {
+    "device_topup_meas_only": 4,
+    "device_topup_prep_only": 4,
+    "device_topup_gate_idle": 3
+   }
+  },
+  "ghw+heavy+nb_pre_x2": {
+   "kind": "portfolio",
+   "fails": 8,
+   "n": 90,
+   "flaky": 0,
+   "oracle_fails": 7,
+   "by_gen": {
+    "device_topup_meas_only": 4,
+    "device_topup_prep_only": 2,
+    "device_topup_gate_idle": 2
+   }
+  },
+  "nb_pre_x2+pre640_sets600": {
+   "kind": "portfolio",
+   "fails": 1,
+   "n": 90,
+   "flaky": 0,
+   "oracle_fails": 1,
+   "by_gen": {
+    "device_topup_prep_only": 1
+   }
+  }
+ }
+}

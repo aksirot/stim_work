@@ -1,0 +1,71 @@
+{
+ "iteration": 5,
+ "incumbent": "heavy",
+ "smoke": false,
+ "generate": {
+  "harvest_weight": 16,
+  "f_gen": 0.015,
+  "added": 40,
+  "w_hat": 3,
+  "census": 66,
+  "census_ok": true,
+  "w_hist": {
+   "3": 64,
+   "4": 2,
+   "5": 15,
+   "6": 6,
+   "7": 1,
+   "8": 5,
+   "9": 7,
+   "10": 8,
+   "11": 9,
+   "12": 16,
+   "13": 15,
+   "14": 49,
+   "15": 36,
+   "16": 69
+  }
+ },
+ "bench": {
+  "n_candidates": 2,
+  "library_n": 302,
+  "ranking": [
+   {
+    "name": "nb_pre_x2",
+    "fixes": 274,
+    "fails": 28,
+    "n": 302,
+    "risk": 0.04648160303845435,
+    "rate": null,
+    "w_onset_ub": 3
+   },
+   {
+    "name": "incumbent",
+    "fixes": 271,
+    "fails": 31,
+    "n": 302,
+    "risk": 0.04850998733586767,
+    "rate": null,
+    "w_onset_ub": 3
+   }
+  ]
+ },
+ "verify": {
+  "challengers": [
+   {
+    "name": "nb_pre_x2",
+    "shots": 10000,
+    "inc_fails": 5,
+    "ch_fails": 5,
+    "b01": 1,
+    "b10": 1,
+    "lib_margin": 3,
+    "risk_gain": 0.042,
+    "p_regress": 0.75,
+    "passes": true
+   }
+  ],
+  "promoted": "nb_pre_x2"
+ },
+ "elapsed_s": 3515.8
+}

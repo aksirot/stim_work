@@ -1,0 +1,21 @@
+{
+ "config": {
+  "source": "compute_f0_asym_18.py",
+  "reuses": [
+   "D",
+   "LD"
+  ],
+  "note": "x5-ray multiplicities re-weight the symmetric failing sets"
+ },
+ "elapsed_s": 1.4130091667175293,
+ "finished_at": "2026-07-27T10:10:16",
+ "result": {
+  "D": 3,
+  "w0": 2,
+  "f0": 0.04192980166606979,
+  "f0_symmetric": 0.0215399315496016,
+  "n_LD": 23,
+  "n_expanded": 9756,
+  "route": "App.A.6 (odd D), x5-ray multiplicities"
+ }
+}

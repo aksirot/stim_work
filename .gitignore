@@ -21,7 +21,26 @@ build/
 bench_results_*.json
 
 # Sweep / splitting run output (generated checkpoints, npz, plots, logs)
-runs/
+# `runs/*` rather than `runs/` so specific result sets can be re-included below —
+# git will not descend into an excluded DIRECTORY, so negation needs the glob form.
+runs/*
+# REPORT INPUTS ARE TRACKED (~2 MB of JSON, 2026-08-03). The report notebooks read this
+# task cache, so without it a clone can display the committed outputs but cannot
+# re-execute a single cell — and regenerating it means days of cluster time. Keeping it
+# in git is what makes the analysis reproducible, and it is what lets an air-gapped
+# cluster (fish) get the data at all, since it cannot rsync from the other machines.
+!runs/error_model_comparison_18_4_4/
+!runs/error_model_comparison_18_4_4_device_baseline18_ghw72/
+!runs/error_model_comparison_18_4_4_device_baseline18_ghw_deep72/
+!runs/decoder_loop/
+!runs/decoder_loop144/
+!runs/splitting_crosscheck/
+# ...but only the DATA from them: no logs, backups, smoke sandboxes or figures.
+runs/**/*.log
+runs/**/*.bak
+runs/**/*.png
+runs/**/_smoke/
+runs/**/*_smoke/
 sweep_out/
 splitting_vs_is.png
 bb6_fig10_out*/

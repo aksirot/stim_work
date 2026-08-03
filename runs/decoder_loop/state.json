@@ -1,0 +1,16 @@
+{
+ "iteration": 7,
+ "incumbent_name": "pre640_sets1200",
+ "incumbent_cfg": {
+  "gamma0": 0.0625,
+  "pre_iter": 640,
+  "num_sets": 1200,
+  "set_max_iter": 120,
+  "gamma_dist_interval": [
+   -0.5,
+   1.0
+  ],
+  "stop_nconv": 5
+ },
+ "note": "VERIFIED 0/90 sub-onset (w3_certify + certify_merges double-pass) + paired b01=3/b10=0 vs nb_pre_x2; user target met 2026-08-01"
+}
