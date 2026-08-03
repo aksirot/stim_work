@@ -53,7 +53,8 @@ def main():
             syn_f = np.bitwise_xor.reduce(det_f[list(sorted(sup))], axis=0)
             assert (syn_m == syn_f).all()
             lib["entries"].append(dict(mechs=sorted(int(m) for m in sup), w=3,
-                                       generator=tag, iteration=0))
+                                       generator=tag, iteration=0,
+                                       model=model, family="symmetric", code="bb72"))
             have.add(sup)
             new_supports.append(sorted(sup))
             added += 1

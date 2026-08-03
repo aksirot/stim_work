@@ -123,14 +123,24 @@ def lib_save(lib):
     (OUT / "library.json").write_text(json.dumps(lib, indent=1), encoding="utf-8")
 
 
-def lib_add(lib, supports, generator, iteration):
+def lib_add(lib, supports, generator, iteration, model=MODEL, family="symmetric",
+            code="bb72"):
+    """Add failing supports with PROVENANCE.
+
+    model/family/code are load-bearing, not decoration: mechanism indices are only
+    comparable within a code, and a failing config is only meaningful for the decoder
+    of ITS device family (symmetric models share the full-symmetric device decoder;
+    the x5 asym ray is a DIFFERENT device with its own priors). Benching an entry
+    against another family's decoder is a category error — filter on `family`.
+    """
     seen = {frozenset(e["mechs"]) for e in lib["entries"]}
     added = 0
     for s in supports:
         fs = frozenset(int(m) for m in s)
         if fs and fs not in seen:
             lib["entries"].append({"mechs": sorted(fs), "w": len(fs),
-                                   "generator": generator, "iteration": iteration})
+                                   "generator": generator, "iteration": iteration,
+                                   "model": model, "family": family, "code": code})
             seen.add(fs)
             added += 1
     return added

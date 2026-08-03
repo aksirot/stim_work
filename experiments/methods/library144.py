@@ -112,7 +112,9 @@ def main():
             key = frozenset(int(m) for m in s)
             if key and key not in have:
                 lib["entries"].append(dict(mechs=sorted(key), w=len(key),
-                                           generator=generator, iteration=1))
+                                           generator=generator, iteration=1,
+                                           model="gross idle (bare memory)",
+                                           family="idle", code="bb144"))
                 have.add(key); n += 1
         return n
 
