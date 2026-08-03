@@ -60,20 +60,34 @@ def pseudo_threshold(pg, LER):       # break-even LER(p)=p (single-code threshol
 
 
 def fill_spectrum(spec):
-    """Stride fix (needed before reweighting 72-code spectra curve-wide).
+    """Stride fix (needed before reweighting strided spectra curve-wide).
 
-    The 72-code and asymmetric sweeps sample the weight tail at stride 2, and
-    reweight_spectrum sums only sampled weights — at HIGH p (binomial mass inside the
-    strided tail) the raw sum undercounts LER by ~2x. fill_spectrum inserts each missing
-    tail weight with its neighbors' pooled counts (f varies slowly in w), restoring the
-    full mass. Point values at p* unaffected.
+    ``reweight_spectrum`` sums only SAMPLED weights, so any weight the sweep skipped
+    contributes zero — at high p (where binomial mass sits inside the strided tail) the
+    raw sum undercounts LER by ~2x at stride 2, and worse at coarser strides. This
+    inserts every missing weight between consecutive sampled bins, each carrying the
+    POOLED counts of its two bracketing bins, restoring the full mass.
+
+    Generalized 2026-08-03 from a hardcoded stride-2 rule (``W[i+1] == w + 2``) to
+    arbitrary gaps, so sweeps can stride hard through the saturated tail where f(w) is
+    flat (measured: 0.91-0.96 across w=40..166 on the [[72,4,8]] full-symmetric model).
+    Backward compatible: for a gap of 2 it inserts exactly one weight with the same
+    pooled counts as before, so cached stride-2 spectra reweight bit-identically.
+
+    Pooling is deliberately MODEL-FREE. Filling from the fitted f5 ansatz instead would
+    be circular — the ansatz is fitted to this spectrum, is identically zero below its
+    w0, and the sub-onset decoder floor is by definition measured mass the ansatz cannot
+    represent. Fill where f varies slowly; do not stride through the onset shoulder.
     """
     W, T, F = list(spec.weights), list(spec.trials), list(spec.failures)
     w_out, t_out, f_out = [], [], []
     for i, (w, t, f) in enumerate(zip(W, T, F)):
         w_out.append(w); t_out.append(t); f_out.append(f)
-        if i + 1 < len(W) and W[i + 1] == w + 2:
-            w_out.append(w + 1); t_out.append(t + T[i + 1]); f_out.append(f + F[i + 1])
+        if i + 1 < len(W):
+            for w_missing in range(w + 1, W[i + 1]):
+                w_out.append(w_missing)
+                t_out.append(t + T[i + 1])
+                f_out.append(f + F[i + 1])
     return FailureSpectrum(weights=w_out, trials=t_out, failures=f_out,
                            n_expanded=spec.n_expanded, q_base=spec.q_base, p_ref=spec.p_ref)
 
