@@ -166,14 +166,15 @@ def main():
         lib_add([ctx.support(m) for m in minimal], "campaign_harvest")
         lib_save()
 
-    def escape_cycle(pool_cfgs, n_escapes):
+    def escape_cycle(pool_cfgs, n_escapes, depth=None):
         bases = sorted(pool_cfgs, key=len)[:max(3, n_escapes // 3)]
         if not bases:
             return []
         cands = []
         for k in range(n_escapes):
             c = set(bases[k % len(bases)])
-            for _ in range(1 if k % 3 else 2):
+            n_add = (1 + (k % depth) if depth else (1 if k % 3 else 2))
+            for _ in range(n_add):
                 c.add(int(rng.integers(ctx.N_exp)))
             cands.append(c)
         syn = np.zeros((len(cands), ctx.det.shape[1]), dtype=bool)
@@ -189,9 +190,15 @@ def main():
     pool = list(minimal) + [ctx.lift(e["mechs"]) for e in lib["entries"]]
     w_hat = min((len(ctx.support(m)) for m in pool), default=None)
     stable, rnd = 0, 0
-    while stable < STABLE_ROUNDS and time.time() < deadline and pool:
+    # LIB144_PUSH=1: plateau-BREAKING mode — ignore the stabilization stop and spend the
+    # whole box on escapes whose perturbation GROWS with the stall length (add 1..6
+    # faults, re-strip). The default stabilization rule exits in minutes once 3 rounds
+    # find nothing lighter, which is the right call for a converged descent but the
+    # wrong one when the question is whether a plateau can be crossed at all.
+    push = os.environ.get("LIB144_PUSH") == "1"
+    while (push or stable < STABLE_ROUNDS) and time.time() < deadline and pool:
         rnd += 1
-        new = escape_cycle(pool, 15)
+        new = escape_cycle(pool, 15, depth=min(6, 1 + stable) if push else None)
         lib_add([ctx.support(m) for m in new], "campaign_escape")
         pool += new
         w_new = min((len(ctx.support(m)) for m in pool), default=None)
