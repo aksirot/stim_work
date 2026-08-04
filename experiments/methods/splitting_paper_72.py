@@ -61,6 +61,7 @@ def main():
                diag={k: v for k, v in diag.items()
                      if isinstance(v, (int, float, str, list, dict))})
     path = OUT / "72_full_paper.json"
+    OUT.mkdir(parents=True, exist_ok=True)   # fresh clone (e.g. a cluster) has no runs/
     path.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
     print(f"wrote {path}", flush=True)
 
