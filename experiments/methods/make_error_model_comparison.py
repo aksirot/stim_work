@@ -252,15 +252,18 @@ high-`w` gaps are the stride-2 tail sampling (see `emc_report.fill_spectrum`).""
 
 code(r'''R.fig_spectrum_grid()   # every spectrum §6-§8 reweights, eyeballed in one figure''')
 
-md(r"""The grid above answers *how often does a weight-`w` fault defeat the decoder?*. The
-companion below answers the question that actually sets the logical error rate: *which
-`w` matters at a given physical error rate?* Each weight contributes
-`P(W=w | p) · f(w)` — how likely it is, times how often it fails — and the panels show
-that product normalised over `w`. As `p` falls the binomial mass collapses toward low
-weights, so the LER ends up carried by the **lightest weight with a non-zero measured
-`f(w)`**, marked in red. That weight is a property of the *decoder*, not the code: it is
-the exponent `k` in `LER ~ p^k`, so a sub-onset floor does not merely offset the curve,
-it tilts it. Compare the red line with the dashed perfect-decoder onset `w₀`.""")
+md(r"""The grid above answers *how often does a weight-`w` fault defeat the decoder?*.
+The companion below answers the complementary question: **when this code does fail, how
+heavy was the fault?** Conditioning the weight distribution on failure — `P(W=w|p)·f(w)`,
+normalised — gives the mean plotted here, with ±1 s.d. bands showing the spread of
+failures (not uncertainty).
+
+Two reference lines make it readable. The dotted grey line is the mean number of faults
+in an *arbitrary* shot, `N·q`: failures sit well above it, because everything lighter is
+corrected. The dashed line is the perfect-decoder onset `w₀`: a curve that sinks toward
+or below it at low `p` is a decoder being killed by sub-onset configurations, which is
+the floor this campaign set out to measure. A better decoder is defeated only by heavier
+faults, so its curve sits **higher** even though it fails far less often.""")
 
 code(r'''R.fig_weight_map()   # which fault weights carry the LER, versus p''')
 

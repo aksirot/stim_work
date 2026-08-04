@@ -1553,74 +1553,78 @@ def ler_slope_table(model="full_symmetric",
     print("as p^3; one clean to the true onset recovers p^4 — the code's own scaling.")
 
 
-def _weight_map_panel(ax, spec, p_grid, w_max, onset):
-    """Shared drawing for the weight-vs-p contribution maps. Returns the mesh handle."""
+def _failing_weight_stats(spec, p_grid):
+    """Mean and s.d. of the fault weight AMONG FAILING SHOTS, as a function of p.
+
+    A shot of weight w occurs with probability P(W=w|p) and fails a fraction f(w) of the
+    time, so the weight distribution *conditioned on failure* is proportional to
+    P(W=w|p)·f(w). Its mean is the answer to "when this thing fails, how many faults did
+    it take?" — which is a decoder property: a better decoder is defeated only by heavier
+    configurations, so its mean failing weight is HIGHER even though it fails less often.
+    """
     from scipy.stats import binom as _binom
     s = fill_spectrum(spec)
-    W = np.asarray(s.weights); F = np.asarray(s.failures, float); T = np.asarray(s.trials, float)
-    keep = (W <= w_max) & (T > 0)
-    W = W[keep]
-    f_w = F[keep] / T[keep]
-    M = np.zeros((len(W), len(p_grid)))
+    W = np.asarray(s.weights)
+    T = np.maximum(np.asarray(s.trials, float), 1.0)
+    f = np.asarray(s.failures, float) / T
+    mean = np.zeros(len(p_grid)); sd = np.zeros(len(p_grid))
+    ok = np.zeros(len(p_grid), dtype=bool)
     for j, p in enumerate(p_grid):
         q = s.q_base * (p / s.p_ref)
-        c = _binom.pmf(W, s.n_expanded, q) * f_w
+        c = _binom.pmf(W, s.n_expanded, q) * f
         tot = c.sum()
-        M[:, j] = c / tot if tot > 0 else 0.0
-    im = ax.pcolormesh(p_grid, W, M, shading="nearest", cmap="viridis", vmin=0)
-    ax.plot(p_grid, (M * W[:, None]).sum(axis=0), "-", color="white", lw=1.8)
-    if (f_w > 0).any():
-        w_lo = W[f_w > 0].min()
-        ax.axhline(w_lo, color="crimson", lw=1.3)
-        ax.text(p_grid[2], w_lo + 0.5, f"w={w_lo}", color="crimson", fontsize=7)
-    ax.axhline(onset, color="w", ls="--", lw=0.9, alpha=0.85)
-    ax.set_xscale("log")
-    return im
+        if tot <= 0:
+            continue
+        m = float((c * W).sum() / tot)
+        v = float((c * (W - m) ** 2).sum() / tot)
+        mean[j], sd[j], ok[j] = m, np.sqrt(max(v, 0.0)), True
+    return mean, sd, ok
 
 
-def _weight_map(report, code="72", models=None, p_lo=1e-5, p_hi=5e-3, w_max=20):
-    """Companion to fig_spectrum_grid: WHICH fault weights carry the LER, versus p.
+def _weight_map(report, p_lo=1e-5, p_hi=5e-3, models=None, band=True):
+    """Mean weight of a FAILING shot versus physical error rate, per model and code.
 
-    The spectrum grid answers "how often does weight w fail?"; this answers "which w
-    actually matters at a given physical error rate?" — the product of that failure
-    fraction with the binomial weight of w at p, normalised. As p falls, the mass
-    collapses onto the lightest weight with a NON-ZERO measured f(w), which is a property
-    of the decoder, not of the code: it sets the exponent of LER ~ p^k.
+    Companion to fig_spectrum_grid: the grid says how often weight-w faults defeat the
+    decoder; this says how heavy a fault has to be before it does. Bands are ±1 s.d. of
+    the failing-weight distribution (spread of failures, not uncertainty). The dashed
+    line is the perfect-decoder onset w0 = ceil(D/2); the dotted grey line is the mean
+    number of faults in an ARBITRARY shot (N·q), so the gap between the two shows how far
+    into the tail a failure sits.
     """
     models = list(models or report.MODELS)
-    prefix = "tech1_72__" if code == "72" else "tech1__"
-    onset = (report.load(f"tech2_72__full_symmetric" if code == "72"
-                         else "tech2__full_symmetric")["D"] + 1) // 2
-    p_grid = np.geomspace(p_lo, p_hi, 90)
-    ncol = 3
-    nrow = int(np.ceil(len(models) / ncol))
-    fig, axes = plt.subplots(nrow, ncol, figsize=(5.3 * ncol, 3.6 * nrow),
-                             sharex=True, sharey=True)
-    axes = np.atleast_1d(axes).ravel()
-    im = None
-    for ax, m in zip(axes, models):
-        try:
-            r = report.load(f"{prefix}{slug(m)}")
-        except FileNotFoundError:
-            ax.set_visible(False)
-            continue
-        im = _weight_map_panel(ax, report.spectrum_of(r), p_grid, w_max, onset)
-        ax.set_title(m, fontsize=10)
-    for ax in axes[len(models):]:
-        ax.set_visible(False)
-    for i, ax in enumerate(axes[:len(models)]):
-        if i % ncol == 0:
-            ax.set_ylabel("fault weight w")
-        if i >= len(models) - ncol:
-            ax.set_xlabel("physical error rate p")
-    if im is not None:
-        fig.colorbar(im, ax=list(axes), label="share of LER at that p", pad=0.02)
-    label = "[[72,4,8]]" if code == "72" else "[[18,4,4]]"
-    fig.suptitle(f"{label} — which fault weights carry the logical error rate\n"
-                 f"(white: mean contributing weight; dashed: perfect-decoder onset "
-                 f"w₀={onset}; red: lightest weight this decoder actually fails)",
-                 fontsize=11, y=1.02)
-    plt.show()
+    p_grid = np.geomspace(p_lo, p_hi, 70)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8))
+    for ax, (code, prefix, t2, rounds_lbl) in zip(axes, [
+            ("18,4,4", "tech1__", "tech2__full_symmetric", "[[18,4,4]]"),
+            ("72,4,8", "tech1_72__", "tech2_72__full_symmetric", "[[72,4,8]]")]):
+        onset = (report.load(t2)["D"] + 1) // 2
+        n_exp = q_base = None
+        for m in models:
+            try:
+                r = report.load(f"{prefix}{slug(m)}")
+            except FileNotFoundError:
+                continue
+            spec = report.spectrum_of(r)
+            n_exp, q_base, p_ref = spec.n_expanded, spec.q_base, spec.p_ref
+            mean, sd, ok = _failing_weight_stats(spec, p_grid)
+            col = report.COLORS.get(m, "0.4")
+            ax.plot(p_grid[ok], mean[ok], "-", lw=2, color=col, label=m)
+            if band:
+                ax.fill_between(p_grid[ok], (mean - sd)[ok], (mean + sd)[ok],
+                                color=col, alpha=0.10, lw=0)
+        if n_exp is not None:
+            ax.plot(p_grid, n_exp * q_base * (p_grid / p_ref), ":", color="0.45", lw=1.4,
+                    label="mean faults per shot (any shot)")
+        ax.axhline(onset, color="k", ls="--", lw=1.0)
+        ax.text(p_grid[1], onset + 0.15, f"onset $w_0$={onset}", fontsize=8)
+        ax.set_xscale("log")
+        ax.set_xlabel("physical error rate p")
+        ax.set_ylabel("mean fault weight of a FAILING shot")
+        ax.set_title(f"{rounds_lbl} — how heavy a fault has to be to cause a failure",
+                     fontsize=10)
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=7)
+    plt.tight_layout(); plt.show()
 
 
 Report.fig_weight_map = _weight_map
