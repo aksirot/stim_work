@@ -520,7 +520,13 @@ class Report:
         ONSET_BY_COL = [(self.load("tech2__full_symmetric")["D"] + 1) // 2,
                         (self.load("tech2_72__full_symmetric")["D"] + 1) // 2]
 
-        fig, axes = plt.subplots(3, 2, figsize=(13, 13), sharex="col", sharey="col")
+        # sharey per ROW, not per column: the x5 asym rays live between ~1e-2 and 1, while
+        # the symmetric rows reach 1e-7. Sharing a column made the asym panels a flat line
+        # pinned to the top of a six-decade axis. Rows still share so the two codes stay
+        # directly comparable, which is the comparison the figure exists to make.
+        fig, axes = plt.subplots(3, 2, figsize=(13, 13), sharex="col")
+        for _r in range(3):
+            axes[_r][1].sharey(axes[_r][0])
         for r, (row_title, specs18, specs72) in enumerate(ROWS):
             for c, specs in enumerate((specs18, specs72)):
                 ax = axes[r][c]
@@ -542,7 +548,11 @@ class Report:
         # tight scale.
         Y72_FLOOR = 1e-9
         for _r in range(3):
-            axes[_r][1].set_ylim(bottom=Y72_FLOOR)
+            # floor only where the data actually needs the room; the x5 asym row (r=2) is
+            # measured down to ~1e-3 and would otherwise be squashed by an empty 6 decades
+            lo = min((v for v in axes[_r][1].get_lines()
+                      for v in v.get_ydata() if v and v > 0), default=Y72_FLOOR)
+            axes[_r][1].set_ylim(bottom=max(Y72_FLOOR, lo / 5))
 
         def _note_clipped(ax, tasks):              # bounds under the floor -> a text note
             clipped = []
