@@ -267,6 +267,21 @@ faults, so its curve sits **higher** even though it fails far less often.""")
 
 code(r'''R.fig_weight_map()   # which fault weights carry the LER, versus p''')
 
+md(r"""### Where the ansatz stops describing the data
+
+The `f5` ansatz encodes *code-limited* behaviour: a hard onset `w₀`, then a monotonic,
+steep rise. What a real decoder produces below the onset is a **floor** — a roughly
+constant miscorrection probability, because a decoder that mis-corrects three faults
+tends to mis-correct four about as often. That shape is outside the family, so the fit
+undershoots the lightest bins no matter how well it is optimised.
+
+The consequence is directional and worth stating plainly: **below about `p = 1e-3` the
+ansatz is optimistic**, because it assigns little or no probability to exactly the
+sub-onset mass this campaign measured. Above that the two agree to within ~20%, since
+the binomial mass then sits on weights the ansatz fits well.""")
+
+code(r'''R.fig_ansatz_vs_measured()   # ansatz vs measured: the floor is flat, the ansatz cannot be''')
+
 code(r'''R.lambda_table()''')
 
 code(r'''R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)''')

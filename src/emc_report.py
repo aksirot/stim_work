@@ -1628,3 +1628,73 @@ def _weight_map(report, p_lo=1e-5, p_hi=5e-3, models=None, band=True):
 
 
 Report.fig_weight_map = _weight_map
+
+
+def _ansatz_vs_measured(report, model="full symmetric", w_hi=16, p_lo=1e-5, p_hi=2e-2):
+    """Where the f5 ansatz stops describing the measured spectrum, and what it costs.
+
+    LEFT: measured f(w) against the fitted ansatz near the onset. The ansatz rises
+    monotonically and steeply from f0 at w0; a decoder FLOOR is instead roughly flat in w
+    (miscorrection barely cares whether it is fighting 3 faults or 4), so the form
+    structurally undershoots the lightest bins.
+
+    RIGHT: the resulting LER ratio, ansatz / reweighted-measured, for every model. They
+    track while the binomial mass sits on weights the ansatz fits; below that the mass
+    moves onto the floor and the ansatz becomes OPTIMISTIC — it cannot represent mass it
+    has no functional form for. Values < 1 mean the ansatz under-predicts the error.
+    """
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
+    pg = np.geomspace(p_lo, p_hi, 60)
+
+    # LEFT: one model, measured bins vs the fitted curve
+    r = report.load(f"tech1_72__{slug(model)}")
+    spec = report.spectrum_of(r)
+    fit = fit_failure_spectrum(spec, K=r.get("K", 4), model="f5", w0=None, f0=None)
+    par = fit.params if hasattr(fit, "params") else {}
+    W = np.asarray(spec.weights); F = np.asarray(spec.failures, float)
+    T = np.asarray(spec.trials, float)
+    m = (W <= w_hi) & (F > 0)
+    rate = F[m] / T[m]
+    se = 1.96 * np.sqrt(rate * (1 - rate) / T[m])
+    axL.errorbar(W[m], rate, yerr=[np.minimum(se, rate * 0.999), se], fmt="o", ms=6,
+                 color="crimson", capsize=2, label="measured f(w)  (95% CI)")
+    z = (W <= w_hi) & (F == 0) & (T > 0)
+    if z.any():
+        axL.plot(W[z], 3.0 / T[z], "v", ms=7, mfc="none", mec="crimson", mew=1.5,
+                 label="zero-failure bin (3/T bound)")
+    ww = np.arange(2, w_hi + 1, dtype=float)
+    fa = failure_spectrum_ansatz(ww, par.get("w0", 0.0), par.get("f0", 0.0), 1.0, model="f5",
+                                 gamma1=par.get("gamma1"), gamma2=par.get("gamma2"),
+                                 wc=par.get("wc"))
+    axL.plot(ww, np.maximum(fa, TINY), "-", color="0.35", lw=2,
+             label=f"f5 ansatz (w₀={par.get('w0', float('nan')):.1f})")
+    axL.axvline(par.get("w0", np.nan), color="0.35", ls=":", lw=1)
+    axL.set_yscale("log"); axL.set_xlabel("fault weight w"); axL.set_ylabel("f(w)")
+    axL.set_title(f"{model} — the floor is flat; the ansatz cannot be", fontsize=10)
+    axL.set_xticks(range(2, w_hi + 1, 2))
+    axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=8)
+
+    # RIGHT: LER ratio for every model
+    for mdl in report.MODELS:
+        try:
+            rm = report.load(f"tech1_72__{slug(mdl)}")
+            sp = report.spectrum_of(rm)
+            ft = fit_failure_spectrum(sp, K=rm.get("K", 4), model="f5", w0=None, f0=None)
+        except Exception:                                        # noqa: BLE001
+            continue
+        meas = np.array([float(reweight_spectrum(fill_spectrum(sp), [p]).P_logical[0])
+                         for p in pg])
+        ans = np.asarray(logical_error_rate_from_ansatz(ft, pg))
+        ok = meas > 0
+        axR.plot(pg[ok], (ans[ok] / meas[ok]), "-", lw=2,
+                 color=report.COLORS.get(mdl, "0.4"), label=mdl)
+    axR.axhline(1.0, color="k", lw=1)
+    axR.set_xscale("log"); axR.set_yscale("log")
+    axR.set_xlabel("physical error rate p")
+    axR.set_ylabel("LER(f5 ansatz) / LER(reweighted measured)")
+    axR.set_title("below ~1e-3 the ansatz is OPTIMISTIC (misses the floor)", fontsize=10)
+    axR.grid(alpha=0.3, which="both"); axR.legend(fontsize=7)
+    plt.tight_layout(); plt.show()
+
+
+Report.fig_ansatz_vs_measured = _ansatz_vs_measured

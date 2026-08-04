@@ -432,6 +432,30 @@ R.fig_weight_map()   # which fault weights carry the LER, versus p
     
 
 
+### Where the ansatz stops describing the data
+
+The `f5` ansatz encodes *code-limited* behaviour: a hard onset `w₀`, then a monotonic,
+steep rise. What a real decoder produces below the onset is a **floor** — a roughly
+constant miscorrection probability, because a decoder that mis-corrects three faults
+tends to mis-correct four about as often. That shape is outside the family, so the fit
+undershoots the lightest bins no matter how well it is optimised.
+
+The consequence is directional and worth stating plainly: **below about `p = 1e-3` the
+ansatz is optimistic**, because it assigns little or no probability to exactly the
+sub-onset mass this campaign measured. Above that the two agree to within ~20%, since
+the binomial mass then sits on weights the ansatz fits well.
+
+
+```python
+R.fig_ansatz_vs_measured()   # ansatz vs measured: the floor is flat, the ansatz cannot be
+```
+
+
+    
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_29_0.png)
+    
+
+
 
 ```python
 R.lambda_table()
@@ -461,7 +485,7 @@ R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_29_0.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_31_0.png)
     
 
 
@@ -617,7 +641,7 @@ R.fig_84()   # the §7.4 panels on the ×5 ray, same bold/faint convention
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_1.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_40_1.png)
     
 
 
@@ -645,13 +669,13 @@ R.fig_85()   # marginal (leave-one-out) curves, symmetric ray then ×5 ray
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_40_0.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_42_0.png)
     
 
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_40_1.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_42_1.png)
     
 
 
