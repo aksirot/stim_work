@@ -1243,3 +1243,108 @@ class DevTransition:
         (Lb, _, _), (Lg, _, hg) = out["baseline"], out["ghw"]
         print(f"  decoder improvement: {Lb/Lg:.1f}x  "
               f"(floor {Lb/(Lg+hg):.1f}x pricing every ghw zero bin at 3/T)")
+
+
+# ---------------------------------------------------------------------------
+# Decoder generations: baseline -> ghw -> ghw_deep on the same models
+# ---------------------------------------------------------------------------
+GEN_DIRS = [
+    ("baseline", "error_model_comparison_18_4_4", "0.45"),
+    ("ghw", "error_model_comparison_18_4_4_device_baseline18_ghw72", "#2c7fb8"),
+    ("ghw_deep", "error_model_comparison_18_4_4_device_baseline18_ghw_deep72", "#c51b8a"),
+]
+
+
+def _gen_spec(run_name, task):
+    p = run_dir(run_name) / f"{task}.json"
+    if not p.exists():
+        return None
+    s = json.loads(p.read_text(encoding="utf-8"))["result"]["spectrum"]
+    return {int(w): (int(f), int(t)) for w, f, t in
+            zip(s["weights"], s["failures"], s["trials"])}
+
+
+def fig_decoder_generations(models=("full_symmetric", "CZ_only", "meas_only",
+                                    "prep_only", "gate_idle", "meas_idle"),
+                            w_max=10, w0=4, min_trials=100_000):
+    """f(w) in the SUB-ONSET band for each decoder generation, same models and convention.
+
+    Only bins with >= `min_trials` are drawn, so generation-depth bins (10k caps) cannot
+    masquerade as measurements of a 1e-6-class rate. Filled markers are measured rates
+    with 95% binomial bars; open triangles are zero-failure bins plotted at their
+    rule-of-three upper bound 3/T. The shaded band is w < w0 = ceil(D/2): below the
+    perfect-decoder onset, so anything there is decoder miscorrection, not a code limit.
+    """
+    n = len(models)
+    ncol = 3
+    nrow = int(np.ceil(n / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(4.6 * ncol, 3.7 * nrow),
+                             sharex=True, sharey=True)
+    axes = np.atleast_1d(axes).ravel()
+    for ax, model in zip(axes, models):
+        ax.axvspan(1.5, w0 - 0.5, color="#f2e6c7", alpha=0.55, zorder=0)
+        for label, run_name, colour in GEN_DIRS:
+            d = _gen_spec(run_name, f"tech1_72__{model}")
+            if not d:
+                continue
+            ws, rs, los, his, bw, bv = [], [], [], [], [], []
+            for w in sorted(d):
+                if w > w_max:
+                    continue
+                f, t = d[w]
+                if t < min_trials:
+                    continue
+                if f == 0:
+                    bw.append(w); bv.append(3.0 / t)
+                    continue
+                r = f / t
+                se = 1.96 * np.sqrt(r * (1 - r) / t)
+                ws.append(w); rs.append(r)
+                los.append(min(se, r * 0.999)); his.append(se)
+            if ws:
+                ax.errorbar(ws, rs, yerr=[los, his], fmt="o-", ms=4.5, lw=1.3,
+                            capsize=2, color=colour, label=label, zorder=3)
+            if bw:
+                ax.plot(bw, bv, "v", ms=6, mfc="none", mec=colour, mew=1.4, zorder=3)
+        ax.axvline(w0, color="k", ls="--", lw=0.9)
+        ax.set_yscale("log")
+        ax.set_title(model.replace("_", " "), fontsize=10)
+        ax.grid(alpha=0.3, which="both")
+        ax.set_xticks(range(2, w_max + 1))
+    for ax in axes[n:]:
+        ax.set_visible(False)
+    for i, ax in enumerate(axes[:n]):
+        if i % ncol == 0:
+            ax.set_ylabel("f(w)")
+        if i >= n - ncol:
+            ax.set_xlabel("fault weight w")
+    axes[0].legend(fontsize=8, loc="lower right")
+    fig.suptitle("[[72,4,8]] sub-onset floor by decoder generation — device calibration, "
+                 f"3e6-shot bins (shaded: w < w0={w0}, pure decoder miscorrection; "
+                 "open ▽ = zero-failure bin at 3/T)", fontsize=11, y=1.0)
+    plt.tight_layout()
+    plt.show()
+
+
+def decoder_generations_table(models=("full_symmetric", "CZ_only", "meas_only",
+                                      "prep_only", "gate_idle", "meas_idle"),
+                              ws=(2, 3, 4, 5), min_trials=100_000):
+    """The same content as a table — every number quotable, with its denominator."""
+    hdr = "  ".join(f"{'w=' + str(w):>16s}" for w in ws)
+    for label, run_name, _ in GEN_DIRS:
+        print(f"\n=== {label} ===")
+        print(f"{'model':16s} {hdr}")
+        for model in models:
+            d = _gen_spec(run_name, f"tech1_72__{model}")
+            if not d:
+                continue
+            cells = []
+            for w in ws:
+                v = d.get(w)
+                if v is None or v[1] < min_trials:
+                    cells.append("       —        ")
+                else:
+                    cells.append(f"{v[0]:>4d}/{v[1]:<11,}")
+            print(f"{model:16s} " + "  ".join(cells))
+    print(f"\n(bins with < {min_trials:,} trials shown as — : generation depth cannot "
+          f"resolve a 1e-6-class rate)")
