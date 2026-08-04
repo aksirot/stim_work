@@ -1544,3 +1544,76 @@ def ler_slope_table(model="full_symmetric",
         print(f"{label:10s} " + "  ".join(cells) + f"   w = {w_lo}")
     print("\nThe leftmost column is closest to asymptotic. A decoder failing at w=3 scales")
     print("as p^3; one clean to the true onset recovers p^4 — the code's own scaling.")
+
+
+def _weight_map_panel(ax, spec, p_grid, w_max, onset):
+    """Shared drawing for the weight-vs-p contribution maps. Returns the mesh handle."""
+    from scipy.stats import binom as _binom
+    s = fill_spectrum(spec)
+    W = np.asarray(s.weights); F = np.asarray(s.failures, float); T = np.asarray(s.trials, float)
+    keep = (W <= w_max) & (T > 0)
+    W = W[keep]
+    f_w = F[keep] / T[keep]
+    M = np.zeros((len(W), len(p_grid)))
+    for j, p in enumerate(p_grid):
+        q = s.q_base * (p / s.p_ref)
+        c = _binom.pmf(W, s.n_expanded, q) * f_w
+        tot = c.sum()
+        M[:, j] = c / tot if tot > 0 else 0.0
+    im = ax.pcolormesh(p_grid, W, M, shading="nearest", cmap="viridis", vmin=0)
+    ax.plot(p_grid, (M * W[:, None]).sum(axis=0), "-", color="white", lw=1.8)
+    if (f_w > 0).any():
+        w_lo = W[f_w > 0].min()
+        ax.axhline(w_lo, color="crimson", lw=1.3)
+        ax.text(p_grid[2], w_lo + 0.5, f"w={w_lo}", color="crimson", fontsize=7)
+    ax.axhline(onset, color="w", ls="--", lw=0.9, alpha=0.85)
+    ax.set_xscale("log")
+    return im
+
+
+def _weight_map(report, code="72", models=None, p_lo=1e-5, p_hi=5e-3, w_max=20):
+    """Companion to fig_spectrum_grid: WHICH fault weights carry the LER, versus p.
+
+    The spectrum grid answers "how often does weight w fail?"; this answers "which w
+    actually matters at a given physical error rate?" — the product of that failure
+    fraction with the binomial weight of w at p, normalised. As p falls, the mass
+    collapses onto the lightest weight with a NON-ZERO measured f(w), which is a property
+    of the decoder, not of the code: it sets the exponent of LER ~ p^k.
+    """
+    models = list(models or report.MODELS)
+    prefix = "tech1_72__" if code == "72" else "tech1__"
+    onset = (report.load(f"tech2_72__full_symmetric" if code == "72"
+                         else "tech2__full_symmetric")["D"] + 1) // 2
+    p_grid = np.geomspace(p_lo, p_hi, 90)
+    ncol = 3
+    nrow = int(np.ceil(len(models) / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(5.3 * ncol, 3.6 * nrow),
+                             sharex=True, sharey=True)
+    axes = np.atleast_1d(axes).ravel()
+    im = None
+    for ax, m in zip(axes, models):
+        try:
+            r = report.load(f"{prefix}{slug(m)}")
+        except FileNotFoundError:
+            ax.set_visible(False)
+            continue
+        im = _weight_map_panel(ax, report.spectrum_of(r), p_grid, w_max, onset)
+        ax.set_title(m, fontsize=10)
+    for ax in axes[len(models):]:
+        ax.set_visible(False)
+    for i, ax in enumerate(axes[:len(models)]):
+        if i % ncol == 0:
+            ax.set_ylabel("fault weight w")
+        if i >= len(models) - ncol:
+            ax.set_xlabel("physical error rate p")
+    if im is not None:
+        fig.colorbar(im, ax=list(axes), label="share of LER at that p", pad=0.02)
+    label = "[[72,4,8]]" if code == "72" else "[[18,4,4]]"
+    fig.suptitle(f"{label} — which fault weights carry the logical error rate\n"
+                 f"(white: mean contributing weight; dashed: perfect-decoder onset "
+                 f"w₀={onset}; red: lightest weight this decoder actually fails)",
+                 fontsize=11, y=1.02)
+    plt.show()
+
+
+Report.fig_weight_map = _weight_map

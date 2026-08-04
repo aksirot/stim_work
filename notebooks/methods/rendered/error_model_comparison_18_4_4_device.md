@@ -408,6 +408,27 @@ R.fig_spectrum_grid()   # every spectrum §6-§8 reweights, eyeballed in one fig
     
 
 
+The grid above answers *how often does a weight-`w` fault defeat the decoder?*. The
+companion below answers the question that actually sets the logical error rate: *which
+`w` matters at a given physical error rate?* Each weight contributes
+`P(W=w | p) · f(w)` — how likely it is, times how often it fails — and the panels show
+that product normalised over `w`. As `p` falls the binomial mass collapses toward low
+weights, so the LER ends up carried by the **lightest weight with a non-zero measured
+`f(w)`**, marked in red. That weight is a property of the *decoder*, not the code: it is
+the exponent `k` in `LER ~ p^k`, so a sub-onset floor does not merely offset the curve,
+it tilts it. Compare the red line with the dashed perfect-decoder onset `w₀`.
+
+
+```python
+R.fig_weight_map()   # which fault weights carry the LER, versus p
+```
+
+
+    
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_27_0.png)
+    
+
+
 
 ```python
 R.lambda_table()
@@ -437,7 +458,7 @@ R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_27_0.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_29_0.png)
     
 
 
@@ -593,7 +614,7 @@ R.fig_84()   # the §7.4 panels on the ×5 ray, same bold/faint convention
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_36_1.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_1.png)
     
 
 
@@ -621,13 +642,13 @@ R.fig_85()   # marginal (leave-one-out) curves, symmetric ray then ×5 ray
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_0.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_40_0.png)
     
 
 
 
     
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_1.png)
+![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_40_1.png)
     
 
 

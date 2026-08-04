@@ -252,6 +252,18 @@ high-`w` gaps are the stride-2 tail sampling (see `emc_report.fill_spectrum`).""
 
 code(r'''R.fig_spectrum_grid()   # every spectrum §6-§8 reweights, eyeballed in one figure''')
 
+md(r"""The grid above answers *how often does a weight-`w` fault defeat the decoder?*. The
+companion below answers the question that actually sets the logical error rate: *which
+`w` matters at a given physical error rate?* Each weight contributes
+`P(W=w | p) · f(w)` — how likely it is, times how often it fails — and the panels show
+that product normalised over `w`. As `p` falls the binomial mass collapses toward low
+weights, so the LER ends up carried by the **lightest weight with a non-zero measured
+`f(w)`**, marked in red. That weight is a property of the *decoder*, not the code: it is
+the exponent `k` in `LER ~ p^k`, so a sub-onset floor does not merely offset the curve,
+it tilts it. Compare the red line with the dashed perfect-decoder onset `w₀`.""")
+
+code(r'''R.fig_weight_map()   # which fault weights carry the LER, versus p''')
+
 code(r'''R.lambda_table()''')
 
 code(r'''R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)''')
