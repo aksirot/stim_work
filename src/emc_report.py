@@ -1385,8 +1385,20 @@ def fig_generations_spectra(model="full_symmetric", p_grid=None):
         z = (~hit) & (T > 0)
         if z.any():
             axL.plot(W[z], 3.0 / T[z], "v", ms=5, mfc="none", mec=colour, mew=1.2)
-        L = [float(reweight_spectrum(fill_spectrum(spec), [p]).P_logical[0]) for p in p_grid]
+        # The reweighted LER counts only MEASURED failures, so a zero-failure bin
+        # contributes exactly zero -> the curve is optimistic wherever the sampling could
+        # not resolve the rate. Draw the honest band: the solid line assumes those bins
+        # are truly empty, the upper edge prices each at its rule-of-three bound 3/T.
+        filled = fill_spectrum(spec)
+        L = [float(reweight_spectrum(filled, [p]).P_logical[0]) for p in p_grid]
+        up = FailureSpectrum(weights=filled.weights, trials=filled.trials,
+                             failures=[f if f > 0 else min(3, t)
+                                       for f, t in zip(filled.failures, filled.trials)],
+                             n_expanded=filled.n_expanded, q_base=filled.q_base,
+                             p_ref=filled.p_ref)
+        L_hi = [float(reweight_spectrum(up, [p]).P_logical[0]) for p in p_grid]
         axR.plot(p_grid, L, "-", lw=2, color=colour, label=label)
+        axR.fill_between(p_grid, L, L_hi, color=colour, alpha=0.18, lw=0)
     for ax in (axL, axR):
         ax.set_yscale("log"); ax.grid(alpha=0.3, which="both")
     axL.set_xscale("log")
@@ -1397,7 +1409,8 @@ def fig_generations_spectra(model="full_symmetric", p_grid=None):
     axR.axvline(5e-4, color="0.6", ls=":", lw=1)
     axR.text(5.3e-4, axR.get_ylim()[0] * 3, "p*", color="0.4", fontsize=8)
     axR.set_xlabel("physical error rate p"); axR.set_ylabel(r"$P_{\rm logical}$ (reweighted)")
-    axR.set_title("what the spectrum implies for the logical error rate", fontsize=10)
+    axR.set_title("reweighted LER — solid: empty bins counted as zero; "
+                  "shaded: each priced at its 3/T bound", fontsize=10)
     axR.legend(fontsize=8)
     plt.tight_layout(); plt.show()
 
@@ -1435,3 +1448,84 @@ def generations_lambda(p_star=5e-4, rounds18=7, rounds72=7,
     print("\nΛ is a RANGE, not a point: unmeasured (zero-failure) low-weight bins could "
           "each sit\nanywhere below their 3/T bound, and the floor column prices them all "
           "at that bound.")
+
+
+def fig_weight_contributions(model="full_symmetric", p_lo=1e-5, p_hi=5e-3, w_max=20):
+    """Which fault weights carry the logical error rate, as a function of p.
+
+    LER(p) = sum_w P(W=w | p) f(w), so each weight's share is
+    C(N,w) q^w (1-q)^(N-w) f(w) normalised over w. This is the picture behind the LER
+    slope: the lightest weight with a NON-ZERO measured f(w) dominates as p falls, so a
+    decoder with a sub-onset floor at w=3 scales as p^3 while a clean one recovers p^4.
+
+    Colour is each weight's fractional contribution at that p; the white line is the
+    contribution-weighted mean weight; the dashed line marks the perfect-decoder onset.
+    """
+    from scipy.stats import binom as _binom
+    pg = np.geomspace(p_lo, p_hi, 90)
+    fig, axes = plt.subplots(1, len(GEN_DIRS), figsize=(5.0 * len(GEN_DIRS), 4.2),
+                             sharey=True)
+    axes = np.atleast_1d(axes)
+    for ax, (label, run_name, _) in zip(axes, GEN_DIRS):
+        spec = _gen_fullspec(run_name, f"tech1_72__{model}")
+        if spec is None:
+            ax.set_visible(False)
+            continue
+        s = fill_spectrum(spec)
+        W = np.asarray(s.weights); F = np.asarray(s.failures, float)
+        T = np.asarray(s.trials, float)
+        keep = W <= w_max
+        W, f_w = W[keep], np.divide(F[keep], T[keep], out=np.zeros(keep.sum()),
+                                    where=T[keep] > 0)
+        M = np.zeros((len(W), len(pg)))
+        for j, p in enumerate(pg):
+            q = s.q_base * (p / s.p_ref)
+            contrib = _binom.pmf(W, s.n_expanded, q) * f_w
+            tot = contrib.sum()
+            M[:, j] = contrib / tot if tot > 0 else 0.0
+        im = ax.pcolormesh(pg, W, M, shading="nearest", cmap="viridis",
+                           vmin=0, vmax=max(M.max(), 1e-9))
+        mean_w = (M * W[:, None]).sum(axis=0)
+        ax.plot(pg, mean_w, "-", color="white", lw=2)
+        w_lo = W[f_w > 0].min() if (f_w > 0).any() else None
+        if w_lo is not None:
+            ax.axhline(w_lo, color="crimson", ls="-", lw=1.4)
+            ax.text(pg[2], w_lo + 0.4, f"lightest measured failure: w={w_lo}",
+                    color="crimson", fontsize=8)
+        ax.axhline(4, color="w", ls="--", lw=1.0, alpha=0.8)
+        ax.set_xscale("log")
+        ax.set_xlabel("physical error rate p")
+        ax.set_title(label, fontsize=10)
+    axes[0].set_ylabel("fault weight w")
+    fig.colorbar(im, ax=list(axes), label="share of LER at that p", pad=0.02)
+    fig.suptitle(f"[[72,4,8]] {model.replace('_', ' ')} — which fault weights carry the "
+                 "logical error rate\n(white: mean contributing weight; dashed: perfect-"
+                 "decoder onset w0=4; red: lightest weight this decoder actually fails)",
+                 fontsize=11, y=1.04)
+    plt.show()
+
+
+def ler_slope_table(model="full_symmetric",
+                    ranges=((1e-5, 1e-4), (1e-4, 5e-4), (2e-4, 1e-3), (1e-3, 5e-3))):
+    """Local log-log slope d log LER / d log p — i.e. the effective exponent LER ~ p^k.
+
+    Asymptotically k -> the lightest fault weight the decoder fails, so a sub-onset floor
+    does not merely add an offset: it DEGRADES THE EXPONENT, and the penalty grows without
+    limit as p falls.
+    """
+    hdr = "  ".join(f"{f'{a:.0e}-{b:.0e}':>12s}" for a, b in ranges)
+    print(f"{'decoder':10s} {hdr}   lightest failing w")
+    for label, run_name, _ in GEN_DIRS:
+        spec = _gen_fullspec(run_name, f"tech1_72__{model}")
+        if spec is None:
+            continue
+        s = fill_spectrum(spec)
+        cells = []
+        for a, b in ranges:
+            pg = np.geomspace(a, b, 6)
+            L = np.array([float(reweight_spectrum(s, [p]).P_logical[0]) for p in pg])
+            cells.append(f"{np.polyfit(np.log(pg), np.log(L), 1)[0]:12.2f}")
+        w_lo = min(w for w, f in zip(s.weights, s.failures) if f > 0)
+        print(f"{label:10s} " + "  ".join(cells) + f"   w = {w_lo}")
+    print("\nThe leftmost column is closest to asymptotic. A decoder failing at w=3 scales")
+    print("as p^3; one clean to the true onset recovers p^4 — the code's own scaling.")

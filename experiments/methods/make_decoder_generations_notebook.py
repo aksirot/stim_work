@@ -39,7 +39,8 @@ p* = 5e-4 (the device convention, one decoder per code):
 """)
 
 code(r'''from emc_report import (fig_decoder_generations, decoder_generations_table,
-                        fig_generations_spectra, generations_lambda)''')
+                        fig_generations_spectra, generations_lambda,
+                        fig_weight_contributions, ler_slope_table)''')
 
 md(r"""## The floor, by model and decoder
 
@@ -73,6 +74,22 @@ the 72-code, and the improvement shown is the decoder's alone.
 rule-of-three bound, so pricing them all at that bound gives the floor; the truth lies
 between.""")
 code(r'''generations_lambda()''')
+
+md(r"""## Which fault weights actually carry the LER
+
+$\mathrm{LER}(p) = \sum_w P(W{=}w \mid p)\, f(w)$, so every weight contributes the
+product of how likely it is and how often it defeats the decoder. As $p$ falls the
+binomial mass collapses toward low weights, and the LER ends up dominated by the
+*lightest weight the decoder actually fails* — which is the decoder's property, not the
+code's.""")
+code(r'''fig_weight_contributions("full_symmetric")''')
+
+md(r"""### The consequence: a sub-onset floor changes the exponent
+
+If the lightest failing weight is $w_{\min}$, then $\mathrm{LER} \sim p^{w_{\min}}$
+asymptotically. So the floor is not a constant offset — it *degrades the scaling*, and
+the penalty grows without bound as $p$ decreases.""")
+code(r'''ler_slope_table()''')
 
 md(r"""## Reading it
 

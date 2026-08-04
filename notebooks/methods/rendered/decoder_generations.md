@@ -26,7 +26,8 @@ p* = 5e-4 (the device convention, one decoder per code):
 
 ```python
 from emc_report import (fig_decoder_generations, decoder_generations_table,
-                        fig_generations_spectra, generations_lambda)
+                        fig_generations_spectra, generations_lambda,
+                        fig_weight_contributions, ler_slope_table)
 ```
 
 ## The floor, by model and decoder
@@ -126,6 +127,45 @@ generations_lambda()
     
     Λ is a RANGE, not a point: unmeasured (zero-failure) low-weight bins could each sit
     anywhere below their 3/T bound, and the floor column prices them all at that bound.
+    
+
+## Which fault weights actually carry the LER
+
+$\mathrm{LER}(p) = \sum_w P(W{=}w \mid p)\, f(w)$, so every weight contributes the
+product of how likely it is and how often it defeats the decoder. As $p$ falls the
+binomial mass collapses toward low weights, and the LER ends up dominated by the
+*lightest weight the decoder actually fails* — which is the decoder's property, not the
+code's.
+
+
+```python
+fig_weight_contributions("full_symmetric")
+```
+
+
+    
+![png](decoder_generations_files/decoder_generations_11_0.png)
+    
+
+
+### The consequence: a sub-onset floor changes the exponent
+
+If the lightest failing weight is $w_{\min}$, then $\mathrm{LER} \sim p^{w_{\min}}$
+asymptotically. So the floor is not a constant offset — it *degrades the scaling*, and
+the penalty grows without bound as $p$ decreases.
+
+
+```python
+ler_slope_table()
+```
+
+    decoder     1e-05-1e-04   1e-04-5e-04   2e-04-1e-03   1e-03-5e-03   lightest failing w
+    baseline           2.97          2.90          3.01          4.97   w = 3
+    ghw                2.93          2.89          3.28          5.94   w = 3
+    ghw_deep           3.89          3.54          3.74          6.21   w = 4
+    
+    The leftmost column is closest to asymptotic. A decoder failing at w=3 scales
+    as p^3; one clean to the true onset recovers p^4 — the code's own scaling.
     
 
 ## Reading it
