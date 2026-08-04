@@ -799,8 +799,13 @@ class Report:
 
     # --- §8.4 the ×5-ray panels -----------------------------------------------------------
 
-    def fig_84(self):
-        """The §7.4 panels on the ×5 ray, dual-estimator style (bold reweighted + faint fit).
+    def fig_84(self, show_fit=False):
+        """The §7.4 panels on the ×5 ray (measured curves; f5-fit twins off by default).
+
+        ``show_fit=True`` overlays the faint ansatz twins. They are off by default because
+        on this ray they crowd the measured curves without adding information: the ansatz
+        is fitted to the same bins, drifts at low p, and cannot represent the sub-onset
+        mass at all — the measured curves are the quantity the report quotes.
 
         ε-curve pairs on the ×5 ray. Isolated channels: reweight at r_i·p (no new data).
         Mixes: reweight the asymmetric spectra along the ray. Mask boosted channels where
@@ -871,14 +876,16 @@ class Report:
             axL.plot(p_grid[v], eps72_x5[m][v], "--", color=col, lw=lw * 0.7)
             inv_lam = np.sqrt(np.maximum(eps72_x5[m][v], TINY) / np.maximum(eps18_x5[m][v], TINY))
             axR.plot(p_grid[v], inv_lam, "-", color=col, lw=lw, label=m)
-            if m in eps18_fit_x5 and m in eps72_fit_x5:    # faint f5-fit twins, §7.4 style
+            if show_fit and m in eps18_fit_x5 and m in eps72_fit_x5:   # faint f5-fit twins
                 axL.plot(p_grid[v], eps18_fit_x5[m][v], "-", color=col, lw=0.8, alpha=0.3)
                 axL.plot(p_grid[v], eps72_fit_x5[m][v], "--", color=col, lw=0.8, alpha=0.3)
                 axR.plot(p_grid[v], np.sqrt(np.maximum(eps72_fit_x5[m][v], TINY)
                                             / np.maximum(eps18_fit_x5[m][v], TINY)),
                          "-", color=col, lw=0.8, alpha=0.3)
         axL.plot([], [], "-", color="gray", lw=2, label="reweighted measured (bold)")
-        axL.plot([], [], "-", color="gray", lw=0.8, alpha=0.4, label="f5 fit (faint; drifts at low p)")
+        if show_fit:
+            axL.plot([], [], "-", color="gray", lw=0.8, alpha=0.4,
+                     label="f5 fit (faint; drifts at low p)")
         axL.set_xscale("log"); axL.set_yscale("log")
         axL.set_xlabel("base physical error rate p (boosted channels at 5p)")
         axL.set_ylabel("per-round logical error rate ε")
