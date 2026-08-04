@@ -585,10 +585,11 @@ class Report:
         axes[0][0].plot([], [], "*", color="gray", mec="k", mew=0.5, ms=12, ls="none",
                         label="perfect-decoder onset f₀* (exact; 18-code)")
         axes[0][0].legend(fontsize=7)
-        axes[0][1].plot([], [], "^", color="gray", mfc="none", mec="gray", mew=1.4, ms=8, ls="none",
+        # the 72-code-only glyph belongs on the 72 row, which is now row 1
+        axes[1][0].plot([], [], "^", color="gray", mfc="none", mec="gray", mew=1.4, ms=8,
+                        ls="none",
                         label="perfect-decoder onset f₀* ≥ (lower bound; 72-code)")
-        axes[0][1].legend(fontsize=7)
-        axes[2][0].set_xlabel("fault weight w"); axes[2][1].set_xlabel("fault weight w")
+        axes[1][0].legend(fontsize=7)
         plt.tight_layout(); plt.show()
 
     # --- §7.3 the Λ table -----------------------------------------------------------------
