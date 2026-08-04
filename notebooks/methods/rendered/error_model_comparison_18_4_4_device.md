@@ -43,31 +43,10 @@ R = Report("error_model_comparison_18_4_4_device_baseline18_ghw72")  # results d
 R.dem_counts()
 ```
 
-    full symmetric  : 1062 DEM mechanisms
-    CZ only         : 1062 DEM mechanisms
-    meas only       : 45 DEM mechanisms
-    prep only       : 45 DEM mechanisms
-    gate idle       : 72 DEM mechanisms
-    meas idle       : 72 DEM mechanisms
-    
-
 
 ```python
 R.runner_times()   # cached per-task wall time, grouped by section
 ```
-
-    section                      tasks    wall time   newest result
-    setup + §0 schedule              3         0.2s   2026-07-28T19:08:02
-    §1 distances/onsets              6         9.7s   2026-07-28T19:12:06
-    §2 spectra (Technique I)         6        34.2s   2026-07-31T16:02:05
-    §3 splitting                     6       168.0s   2026-07-31T16:02:27
-    §4 direct MC                     6        68.7s   2026-07-31T16:02:31
-    §5 ablations (18)               15       197.6s   2026-07-31T16:05:49
-    §7 [[72,4,8]] sweeps            18    27,232.7s   2026-07-31T19:43:16
-    §7.5 72-code ablations           5    38,139.2s   2026-08-01T02:49:19
-    §8 asymmetric point             12    44,406.0s   2026-08-01T13:27:37
-    TOTAL                                110,256.3s   (§6 is pure analysis — no runner tasks)
-    
 
 ## §0 — The syndrome-extraction schedule, up close
 
@@ -86,38 +65,10 @@ the labelled noise boxes are readable.
 R.schedule_table()
 ```
 
-    layer |       data q0 (L)        |       data q9 (R)        |        X-anc q18         |        Z-anc q27        
-    --------------------------------------------------------------------------------------------------------------------
-        0 |         R ·prep          |         R ·prep          |            —             |         R ·prep         
-        1 |        ·gate_idle        |        CX→30 ·cz         |   R ·prep H ·(1q gate)   |        CX←15 ·cz        
-        2 |        CX←18 ·cz         |        CX→29 ·cz         |         CX→0 ·cz         |        CX←10 ·cz        
-        3 |        CX→28 ·cz         |        CX←18 ·cz         |         CX→9 ·cz         |         CX←2 ·cz        
-        4 |        CX→27 ·cz         |        CX←20 ·cz         |        CX→10 ·cz         |         CX←0 ·cz        
-        5 |        CX→33 ·cz         |        CX←21 ·cz         |        CX→15 ·cz         |         CX←3 ·cz        
-        6 |        CX←24 ·cz         |        CX→27 ·cz         |         CX→3 ·cz         |         CX←9 ·cz        
-        7 |        CX←19 ·cz         |        ·gate_idle        |         CX→2 ·cz         |         ·meas M         
-        8 |        ·meas_idle        |        ·meas_idle        |   H ·(1q gate) ·meas M   |         R ·prep         
-        9 |        ·gate_idle        |        CX→30 ·cz         |   R ·prep H ·(1q gate)   |        CX←15 ·cz        
-       10 |        CX←18 ·cz         |        CX→29 ·cz         |         CX→0 ·cz         |        CX←10 ·cz        
-       11 |        CX→28 ·cz         |        CX←18 ·cz         |         CX→9 ·cz         |         CX←2 ·cz        
-    
-    ⏱ runner: 0 s wall over 3 tasks (newest 2026-07-28T19:08:02)
-    
-
 
 ```python
 R.schedule_svg()   # noise boxes tagged/colored by channel; see the method docstring
 ```
-
-    rails: q0 = data q0   q1 = X-anc q18   q2 = X-anc q19   q3 = X-anc q24   q4 = Z-anc q27   q5 = Z-anc q28   q6 = Z-anc q33
-    noise tags: cz = navy   meas = seagreen   prep = darkorange   gate_idle = purple   meas_idle = mediumvioletred   1q gate = gray
-    
-
-
-    
-![svg](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_6_1.svg)
-    
-
 
 ## §1 — Technique II: distance, onset, perfect-decoder floor (per model)
 
@@ -132,17 +83,6 @@ code distance (Appendix A.6 route for `f₀*`). `L(D)` is enumerated with the ld
 ```python
 R.tech2_table()
 ```
-
-    model             D  w0   #DEM   |L(D)|      f0*   route
-    full symmetric    3   2   1062       23   0.0196   App.A.6 (odd D)
-    CZ only           4   2   1062     7542   0.0132   Prop.1 (even D)
-    meas only         4   2     45       45   0.0629   Prop.1 (even D)
-    prep only         4   2     45       45   0.0629   Prop.1 (even D)
-    gate idle         4   2     72       90   0.0449   Prop.1 (even D)
-    meas idle         4   2     72      135   0.1348   Prop.1 (even D)
-    
-    ⏱ runner: 10 s wall over 6 tasks (newest 2026-07-28T19:12:06)
-    
 
 ## §2 — Technique I: failure-spectrum ansatz (per model)
 
@@ -169,16 +109,6 @@ slightly lower pseudo-thresholds than a per-point-calibrated decoder would give.
 R.load_spectra()
 ```
 
-    full symmetric  : w=1..32, measured f(2)=0.0283 (33117 shots total)   f5 fit cost=19.53
-    CZ only         : w=1..20, measured f(2)=0.0284 (27798 shots total)   f5 fit cost=10.98
-    meas only       : w=1..10, measured f(2)=0.0572 (12885 shots total)   f5 fit cost=0.99
-    prep only       : w=1..10, measured f(2)=0.0677 (10216 shots total)   f5 fit cost=4.02
-    gate idle       : w=1..10, measured f(2)=0.0646 (11100 shots total)   f5 fit cost=3.00
-    meas idle       : w=1..10, measured f(2)=0.1270 (5747 shots total)   f5 fit cost=1.66
-    
-    ⏱ runner: 34 s wall over 6 tasks (newest 2026-07-31T16:02:05)
-    
-
 ## §3 — Technique III: replica-exchange splitting (per model)
 
 Splitting reaches deep into the rare regime, seeded by each model's exact `L(D)` from §1.
@@ -187,16 +117,6 @@ Splitting reaches deep into the rare regime, seeded by each model's exact `L(D)`
 ```python
 R.load_splitting()
 ```
-
-    full symmetric  : swap-accept 0.65..0.95   P(1e-4)=1.34e-05
-    CZ only         : swap-accept 0.75..0.98   P(1e-4)=5.44e-06
-    meas only       : swap-accept 0.88..1.00   P(1e-4)=9.69e-07
-    prep only       : swap-accept 0.89..1.00   P(1e-4)=8.77e-07
-    gate idle       : swap-accept 0.87..1.00   P(1e-4)=1.91e-07
-    meas idle       : swap-accept 0.90..1.00   P(1e-4)=5.64e-07
-    
-    ⏱ runner: 168 s wall over 6 tasks (newest 2026-07-31T16:02:27)
-    
 
 ## §4 — Direct Monte-Carlo + overlay
 
@@ -209,22 +129,6 @@ width for minutes.)
 ```python
 R.mc_overlay()
 ```
-
-       p         full symmetric        CZ only      meas only      prep only      gate idle      meas idle
-      0.030         8.603e-01      6.082e-01      6.683e-02      7.317e-02      2.400e-02      5.650e-02
-      0.012         3.786e-01      1.473e-01      1.183e-02      1.150e-02      3.667e-03      8.167e-03
-      0.008         1.898e-01      6.211e-02      5.611e-03      4.944e-03      2.111e-03      3.722e-03
-      0.005         7.623e-02      2.180e-02      2.433e-03      2.000e-03      8.667e-04      1.467e-03
-      0.003         2.456e-02      7.333e-03      5.778e-04      9.111e-04      1.778e-04      5.333e-04
-    
-    ⏱ runner: 69 s wall over 6 tasks (newest 2026-07-31T16:02:31)
-    
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_14_1.png)
-    
-
 
 ## §5 — Ablation (leave-one-out): the marginal channel contributions
 
@@ -243,27 +147,10 @@ channel *i* participates in **every** weight-3 hook; if `D` stays 3, the hooks s
 R.tech2_abl_table()
 ```
 
-    model          D  w0   #DEM   |L(D)|        f0*   hook diagnosis
-    no CZ          4   2    117      180  2.825e-02   restores D=4 -> channel is in EVERY weight-3 hook
-    no meas        3   2   1062       24  1.847e-02   still D=3 -> hooks survive without this channel
-    no prep        3   2   1062       23  2.154e-02   still D=3 -> hooks survive without this channel
-    no gate idle   3   2   1062       15  1.727e-02   still D=3 -> hooks survive without this channel
-    no meas idle   3   2   1062       13  1.626e-02   still D=3 -> hooks survive without this channel
-    
-
 
 ```python
 R.load_ablations()
 ```
-
-    no CZ        : f5 fit cost=10.64   MC LER(p=0.003) = 5.600e-03
-    no meas      : f5 fit cost=17.56   MC LER(p=0.003) = 1.916e-02
-    no prep      : f5 fit cost=16.64   MC LER(p=0.003) = 2.089e-02
-    no gate idle : f5 fit cost=16.99   MC LER(p=0.003) = 1.889e-02
-    no meas idle : f5 fit cost=8.47   MC LER(p=0.003) = 1.807e-02
-    
-    ⏱ runner: 198 s wall over 15 tasks (newest 2026-07-31T16:05:49)
-    
 
 ## §6 — The error budget (Willow-style)
 
@@ -291,30 +178,10 @@ LERs of 1e-4..1e-6).
 R.budget_table()
 ```
 
-    error budget at p* = 0.0005   (LER_full: reweighted 5.491e-04, splitting 4.007e-04)
-    channel       isolated iso(split)  marginal     ±σ     p_pth  p*/p_pth
-    CZ only          0.293      0.358     0.757  0.028    0.0013     0.376
-    meas only        0.037      0.060     0.180  0.086    0.0136     0.037
-    prep only        0.044      0.054     0.180  0.097    0.0112     0.045
-    gate idle        0.013      0.012     0.199  0.085    0.0307     0.016
-    meas idle        0.026      0.035     0.195  0.088    0.0177     0.028
-    mixing           0.587                             (1 - sum isolated: cross-channel faults)
-    SPAM             0.081                0.361         (meas + prep combined)
-    idle total       0.039                0.394         (gate + meas idle combined)
-    sum(marginal) = 1.511  (>1 <=> shared mixed faults; Google renormalizes)
-    Willow-form sum: 0.502 = 0.376 (CZ) + 0.037 (meas) + 0.045 (prep) + 0.016 (gate idle) + 0.028 (meas idle)   [all terms < 1: genuinely sub-threshold]
-    
-
 
 ```python
 R.fig_budget()
 ```
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_20_0.png)
-    
-
 
 ## §7 — The true Λ: five channels on the [[72,4,8]] sibling
 
@@ -340,29 +207,10 @@ see the §7.5 box for when that is worth it.
 R.tech2_72_table()
 ```
 
-    model             D   (circuit fault distance, BP-OSD upper bound; f0 unpinned at this size)
-    full symmetric    8
-    CZ only          10
-    meas only         8
-    prep only         8
-    gate idle         8
-    meas idle         8
-    
-
 
 ```python
 R.load_spectra_72()
 ```
-
-    full symmetric  : weights 1..166 (90/91 sampled, 123401 shots), f5 fit cost=60.63, MC LER(0.008)=3.291e-01
-    CZ only         : weights 1..98 (56/57 sampled, 134259 shots), f5 fit cost=54.67, MC LER(0.008)=3.100e-02
-    meas only       : weights 1..30 (23/23 sampled, 146615 shots), f5 fit cost=9.18, MC LER(0.008)=0.000e+00
-    prep only       : weights 1..30 (22/23 sampled, 141726 shots), f5 fit cost=6.44, MC LER(0.008)=0.000e+00
-    gate idle       : weights 1..24 (19/20 sampled, 103513 shots), f5 fit cost=5.79, MC LER(0.008)=0.000e+00
-    meas idle       : weights 1..24 (19/20 sampled, 114974 shots), f5 fit cost=7.71, MC LER(0.008)=0.000e+00
-    
-    ⏱ runner: 27,233 s wall over 18 tasks (newest 2026-07-31T19:43:16)
-    
 
 ### The measured failure spectra — every one of them, both codes
 
@@ -403,43 +251,14 @@ R.fig_spectrum_grid()   # every spectrum §6-§8 reweights, eyeballed in one fig
 ```
 
 
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_25_0.png)
-    
-
-
-
 ```python
 R.lambda_table()
 ```
-
-    channel           p_th (ε18=ε72)     Λ(p*)       ±σ    Λ(fit)   p*/p_th     (p* = 0.0005)
-    full symmetric            0.0227  7.73e+03  2.7e+03  2.75e+05     0.022
-    CZ only                   0.0372  5.85e+04  1.5e+04  2.36e+05     0.013
-    meas only                  >0.04  1.23e+04  3.3e+03   4.8e+04    <0.013
-    prep only                  >0.04  9.89e+03  2.3e+03  2.68e+05    <0.013
-    gate idle                  >0.04  1.48e+04  4.8e+03   1.9e+10    <0.013
-    meas idle                  >0.04   1.6e+04  4.1e+03  2.01e+07    <0.013
-    
-    Λ_full(p*) = 7.73e+03  →  per-(+2-distance)-step λ = √Λ = 87.9  (d: 4→8 is two steps)
-    Willow identity check at p*: 1/Λ_full = 0.000  vs  Σᵢ p*/p_th,i = 0.013   (CZ 0.013, SPAM 0.000)
-    residual = mixed-channel faults (isolated channels cannot see them — see §1/§5); Σ < 1/Λ_full means the additive budget under-covers by that share.
-    
-
-    C:\Users\aksirot_local\Desktop\workspace\general\stim_work\src\emc_report.py:50: RuntimeWarning: divide by zero encountered in log
-      r = np.log(y1) - np.log(y2)
-    
 
 
 ```python
 R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)
 ```
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_27_0.png)
-    
-
 
 ## §7.5 — Marginal Λ: the ablations on the larger code
 
@@ -470,29 +289,10 @@ bins themselves (3/T), not with more onset failures.
 R.load_ablations_72()
 ```
 
-    ⏱ runner: 38,139 s wall over 5 tasks (newest 2026-08-01T02:49:19)
-    
-
 
 ```python
 R.lambda_box_sym()
 ```
-
-    marginal Λ decomposition at p* = 0.0005   (Λ_full = 7.73e+03, 1/Λ_full = 1.294e-04)
-    channel       Λ_no-i(p*)   1/Λ_no-i  contribution        ±σ   share   verdict
-    CZ only         1.47e+07  6.785e-08     1.293e-04  4.54e-05    1.00   solid
-    meas only        1.1e+05  9.052e-06     1.203e-04  4.62e-05    0.93   sign not robust to zero-bin truncation
-    prep only       1.99e+06  5.018e-07     1.289e-04  4.54e-05    1.00   sign not robust to zero-bin truncation
-    gate idle       4.46e+05  2.240e-06     1.272e-04  4.55e-05    0.98   sign not robust to zero-bin truncation
-    meas idle       9.33e+04  1.072e-05     1.187e-04  4.66e-05    0.92   sign not robust to zero-bin truncation
-    
-    sum of marginal contributions = 6.244e-04  vs  1/Λ_full = 1.294e-04   (ratio 4.83)
-    ratio > 1: shared mixed faults counted once per participant (as in §6's Σ marginal > 1).
-    A NEGATIVE contribution is physical only when 'solid': removing that channel genuinely
-    HURT the suppression ratio (the big code handles its faults better than the small one).
-    '~0' / 'not robust' rows are sampling artifacts — tighten with run_error_model_comparison
-    --boost72 (2× failures, 5× shots on every 72-code spectrum feeding this box).
-    
 
 ## §8 — A second operating point: meas & meas-idle ×5
 
@@ -515,46 +315,15 @@ Convention: `p` remains the base rate of the un-boosted channels, so `p*` compar
 R.load_asym()
 ```
 
-    ⏱ runner: 44,406 s wall over 12 tasks (newest 2026-08-01T13:27:37)
-    
-
 
 ```python
 R.budget_box_asym()
 ```
 
-    budget at the ASYMMETRIC point (meas, meas_idle ×5), p* = 0.0005:
-    LER_full = 2.448e-03  (symmetric point: 5.491e-04 — the ×5 mix costs 4.5× in error rate)
-    channel       isolated  marginal     ±σ   vs symmetric    iso   marg
-    CZ only          0.066     0.215  0.120                 0.293  0.757
-    meas only        0.205     0.541  0.067                 0.037  0.180
-    prep only        0.010    -0.027  0.143                 0.044  0.180
-    gate idle        0.003    -0.020  0.147                 0.013  0.199
-    meas idle        0.146     0.447  0.081                 0.026  0.195
-    mixing           0.571                                0.587
-    sum(marginal) = 1.156   (symmetric: 1.511)
-    
-
 
 ```python
 R.lambda_box_asym()
 ```
-
-    Λ_full(p*=0.0005) at the ×5 point: 1.47e+04 ± 7.5e+03   (symmetric: 7.73e+03)   per-step λ = 121 (symmetric: 87.9)
-    channel       Λ_no-i(p*)   1/Λ_no-i  contribution        ±σ   share   verdict
-    CZ only              428  2.339e-03    -2.271e-03  2.23e-03  -33.45   ~0 within 2σ (noise)
-    meas only       7.58e+03  1.320e-04    -6.408e-05  1.22e-04   -0.94   ~0 within 2σ (noise)
-    prep only       5.57e+03  1.797e-04    -1.118e-04  9.14e-05   -1.65   ~0 within 2σ (noise)
-    gate idle       1.05e+04  9.484e-05    -2.694e-05  5.46e-05   -0.40   ~0 within 2σ (noise)
-    meas idle       1.93e+04  5.173e-05     1.617e-05  5.46e-05    0.24   ~0 within 2σ (noise)
-    
-    sum of marginal contributions = -2.458e-03  vs  1/Λ_full = 6.790e-05   (ratio -36.20)
-    ratio > 1: shared mixed faults counted once per participant (as in §6's Σ marginal > 1).
-    A NEGATIVE contribution is physical only when 'solid': removing that channel genuinely
-    HURT the suppression ratio (the big code handles its faults better than the small one).
-    '~0' / 'not robust' rows are sampling artifacts — tighten with run_error_model_comparison
-    --boost72 (2× failures, 5× shots on every 72-code spectrum feeding this box).
-    
 
 ### §8.4 — the §7.4 panels on the ×5 ray
 
@@ -578,25 +347,6 @@ values with the reweighted estimator for an apples-to-apples comparison.
 R.fig_84()   # the §7.4 panels on the ×5 ray, same bold/faint convention
 ```
 
-    true per-channel thresholds on the ×5 ray (base-p convention) vs the symmetric ray
-    channel           p_th ×5  p_th sym (rw)   note
-    full ×5 mix        0.0126         0.0228   
-    CZ only            0.0372         0.0372   
-    meas only        >0.00751          >0.04   ×5 channel: threshold in its OWN rate = 5×p_th
-    prep only           >0.04          >0.04   
-    gate idle           >0.04          >0.04   
-    meas idle        >0.00751          >0.04   ×5 channel: threshold in its OWN rate = 5×p_th
-    NB: these crossings sit near the K=4 saturation pinch (ε72 caps at 1−(2^-K)^{1/4}), so they
-    are estimator-sensitive — §7's f5-fit versions (full 0.0227, CZ 0.0379) may differ; treat
-    either as indicative. 1/λ at very low p is a LOWER bound (zero-bin truncation of ε72).
-    
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_36_1.png)
-    
-
-
 ### §8.5 — the marginal curves: which channel limits what, where (both rays)
 
 §8.4's panels show channel-**isolated** curves (intrinsic capability; their crossings are the
@@ -618,18 +368,6 @@ a share is only *real* if it verdicts solid there. The dotted vertical line mark
 ```python
 R.fig_85()   # marginal (leave-one-out) curves, symmetric ray then ×5 ray
 ```
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_0.png)
-    
-
-
-
-    
-![png](error_model_comparison_18_4_4_device_files/error_model_comparison_18_4_4_device_38_1.png)
-    
-
 
 ## Takeaways
 

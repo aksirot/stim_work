@@ -524,35 +524,40 @@ class Report:
         # the symmetric rows reach 1e-7. Sharing a column made the asym panels a flat line
         # pinned to the top of a six-decade axis. Rows still share so the two codes stay
         # directly comparable, which is the comparison the figure exists to make.
-        fig, axes = plt.subplots(3, 2, figsize=(13, 13), sharex="col")
-        for _r in range(3):
-            axes[_r][1].sharey(axes[_r][0])
-        for r, (row_title, specs18, specs72) in enumerate(ROWS):
-            for c, specs in enumerate((specs18, specs72)):
-                ax = axes[r][c]
+        # Layout: 2 tall x 3 wide — ROW = code ([[18,4,4]] then [[72,4,8]]), COLUMN = model
+        # family. Each row shares x (a code's weight window) and y (its dynamic range), so
+        # the three families of one code are directly comparable and neither code's scale
+        # is imposed on the other.
+        fig, axes = plt.subplots(2, 3, figsize=(17, 8.5), sharex="row", sharey="row")
+        for code_i in (0, 1):
+            for fam_i, (fam_title, specs18, specs72) in enumerate(ROWS):
+                ax = axes[code_i][fam_i]
+                specs = (specs18, specs72)[code_i]
                 missing = [m for name, col, lbl in specs
                            if (m := self._plot_spec(ax, name, col, lbl))]
-                ax.axvline(ONSET_BY_COL[c], color="k", ls="--", lw=0.8)
+                ax.axvline(ONSET_BY_COL[code_i], color="k", ls="--", lw=0.8)
                 ax.set_xscale("log"); ax.set_yscale("log")
-                ax.set_title(f"{['[[18,4,4]]', '[[72,4,8]]'][c]} — {row_title}", fontsize=10)
+                ax.set_title(f"{['[[18,4,4]]', '[[72,4,8]]'][code_i]} — {fam_title}",
+                             fontsize=10)
                 ax.grid(alpha=0.3, which="both")
                 ax.legend(fontsize=7)
                 if missing:
                     ax.text(0.03, 0.03, "missing: " + ", ".join(missing), transform=ax.transAxes,
                             fontsize=7, color="firebrick", va="bottom")
-            axes[r][0].set_ylabel("per-bin failure fraction  f(w)/T(w)")
+                if code_i == 1:
+                    ax.set_xlabel("fault weight w")
+            axes[code_i][0].set_ylabel("per-bin failure fraction  f(w)/T(w)")
         # The [[72,4,8]] f0* lower bounds span many decades (they tighten only with more
         # enumerated logicals), so the loosest ones (e.g. CZ's single weight-10 logical) would
         # crush the data if left to set the scale. Floor the 72-code column and note any bound
         # that falls below the axis; sharey="col" already keeps the 18-code column on its own
         # tight scale.
         Y72_FLOOR = 1e-9
-        for _r in range(3):
-            # floor only where the data actually needs the room; the x5 asym row (r=2) is
-            # measured down to ~1e-3 and would otherwise be squashed by an empty 6 decades
-            lo = min((v for v in axes[_r][1].get_lines()
-                      for v in v.get_ydata() if v and v > 0), default=Y72_FLOOR)
-            axes[_r][1].set_ylim(bottom=max(Y72_FLOOR, lo / 5))
+        # the 72-code row now shares one y-axis across its three families, so floor it once
+        # from the deepest point any of them actually reaches
+        lo72 = min((v for ax in axes[1] for ln in ax.get_lines()
+                    for v in ln.get_ydata() if v and v > 0), default=Y72_FLOOR)
+        axes[1][0].set_ylim(bottom=max(Y72_FLOOR, lo72 / 5))
 
         def _note_clipped(ax, tasks):              # bounds under the floor -> a text note
             clipped = []
@@ -567,8 +572,8 @@ class Report:
                 ax.text(0.03, 0.03, "f₀* lower bounds below axis: " + "; ".join(clipped),
                         transform=ax.transAxes, fontsize=6.5, va="bottom", color="dimgray")
 
-        _note_clipped(axes[0][1], [(m, f"tech2_72__{slug(m)}") for m in self.MODELS])
-        _note_clipped(axes[2][1], [("full ×5", "tech2_asym__full_72")]
+        _note_clipped(axes[1][0], [(m, f"tech2_72__{slug(m)}") for m in self.MODELS])
+        _note_clipped(axes[1][2], [("full ×5", "tech2_asym__full_72")]
                                   + [(a, f"tech2_asym__{slug(a)}_72") for a in self.ABLATED])
         # Full legend of every glyph, gathered on the two top panels (all glyphs recur in
         # every row).
