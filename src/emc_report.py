@@ -1415,7 +1415,7 @@ def fig_generations_spectra(model="full_symmetric", p_grid=None):
     plt.tight_layout(); plt.show()
 
 
-def generations_lambda(p_star=5e-4, rounds18=7, rounds72=7,
+def generations_lambda(p_star=5e-4, rounds18=None, rounds72=None,
                        model18="tech1__full_symmetric", model72="tech1_72__full_symmetric"):
     """Λ = ε18/ε72 per decoder generation, with the zero-bin truncation band.
 
@@ -1423,10 +1423,19 @@ def generations_lambda(p_star=5e-4, rounds18=7, rounds72=7,
     measured-broken there), so Λ moves only through the 72-code — i.e. this is exactly the
     system-level Λ the campaign quotes, and the improvement is the decoder's.
     """
+    # Round counts come from the campaign manifest, never hardcoded: epsilon is PER ROUND,
+    # so a wrong count silently rescales every Lambda. This campaign runs 2 rounds on the
+    # [[18,4,4]] code and 4 on the [[72,4,8]].
+    if rounds18 is None or rounds72 is None:
+        man = json.loads((run_dir("error_model_comparison_18_4_4") /
+                          "config__manifest.json").read_text(encoding="utf-8"))["config"]
+        rounds18 = rounds18 if rounds18 is not None else man["rounds"]
+        rounds72 = rounds72 if rounds72 is not None else man["rounds72"]
     s18 = _gen_fullspec("error_model_comparison_18_4_4", model18)
     v18 = reweight_spectrum(s18, [p_star])
     e18 = float(per_round(np.asarray([float(v18.P_logical[0])]), rounds18)[0])
-    print(f"Λ = ε18 / ε72  at p* = {p_star}   (18-code = baseline decoder throughout)")
+    print(f"Λ = ε18 / ε72  at p* = {p_star}   (18-code = baseline decoder throughout; "
+          f"{rounds18} rounds on the 18-code, {rounds72} on the 72-code)")
     print(f"  ε18 = {e18:.3e}\n")
     print(f"{'72-code decoder':14s} {'ε72':>12s} {'Λ':>10s} {'Λ floor':>10s}   (floor prices"
           f" every zero bin at 3/T)")

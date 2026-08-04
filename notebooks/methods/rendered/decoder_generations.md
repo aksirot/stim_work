@@ -117,13 +117,13 @@ between.
 generations_lambda()
 ```
 
-    Λ = ε18 / ε72  at p* = 0.0005   (18-code = baseline decoder throughout)
-      ε18 = 7.846e-05
+    Λ = ε18 / ε72  at p* = 0.0005   (18-code = baseline decoder throughout; 2 rounds on the 18-code, 4 on the 72-code)
+      ε18 = 2.746e-04
     
     72-code decoder          ε72          Λ    Λ floor   (floor prices every zero bin at 3/T)
-    baseline          2.011e-07        390        331
-    ghw               2.030e-08       3865       1387
-    ghw_deep          8.011e-09       9794       1207
+    baseline          3.520e-07        780        661
+    ghw               3.553e-08       7728       2774
+    ghw_deep          1.402e-08      19587       2414
     
     Λ is a RANGE, not a point: unmeasured (zero-failure) low-weight bins could each sit
     anywhere below their 3/T bound, and the floor column prices them all at that bound.
