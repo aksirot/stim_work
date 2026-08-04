@@ -1348,3 +1348,90 @@ def decoder_generations_table(models=("full_symmetric", "CZ_only", "meas_only",
             print(f"{model:16s} " + "  ".join(cells))
     print(f"\n(bins with < {min_trials:,} trials shown as — : generation depth cannot "
           f"resolve a 1e-6-class rate)")
+
+
+def _gen_fullspec(run_name, task):
+    """FailureSpectrum for a task in a campaign cache (None if absent)."""
+    p = run_dir(run_name) / f"{task}.json"
+    if not p.exists():
+        return None
+    s = json.loads(p.read_text(encoding="utf-8"))["result"]["spectrum"]
+    keep = set(FailureSpectrum.__dataclass_fields__)
+    return FailureSpectrum(**{k: v for k, v in s.items() if k in keep})
+
+
+def fig_generations_spectra(model="full_symmetric", p_grid=None):
+    """Full IS failure spectrum f(w) and the reweighted LER(p) it implies, per decoder.
+
+    Left: every measured bin, so the sub-onset band and the shoulder are visible in one
+    picture. Right: the same spectra reweighted to a range of physical error rates —
+    this is the quantity the campaign actually quotes, and it shows what the sub-onset
+    improvement is worth in LER terms.
+    """
+    if p_grid is None:
+        p_grid = np.geomspace(1e-4, 1e-2, 40)
+    fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
+    for label, run_name, colour in GEN_DIRS:
+        spec = _gen_fullspec(run_name, f"tech1_72__{model}")
+        if spec is None:
+            continue
+        W = np.asarray(spec.weights); F = np.asarray(spec.failures, float)
+        T = np.asarray(spec.trials, float)
+        hit = F > 0
+        r = F[hit] / T[hit]
+        se = 1.96 * np.sqrt(r * (1 - r) / T[hit])
+        axL.errorbar(W[hit], r, yerr=[np.minimum(se, r * 0.999), se], fmt="o-", ms=3.5,
+                     lw=1.2, capsize=1.5, color=colour, label=label)
+        z = (~hit) & (T > 0)
+        if z.any():
+            axL.plot(W[z], 3.0 / T[z], "v", ms=5, mfc="none", mec=colour, mew=1.2)
+        L = [float(reweight_spectrum(fill_spectrum(spec), [p]).P_logical[0]) for p in p_grid]
+        axR.plot(p_grid, L, "-", lw=2, color=colour, label=label)
+    for ax in (axL, axR):
+        ax.set_yscale("log"); ax.grid(alpha=0.3, which="both")
+    axL.set_xscale("log")
+    axL.set_xlabel("fault weight w"); axL.set_ylabel("f(w)")
+    axL.set_title(f"IS failure spectrum — {model.replace('_', ' ')}", fontsize=10)
+    axL.legend(fontsize=8)
+    axR.set_xscale("log")
+    axR.axvline(5e-4, color="0.6", ls=":", lw=1)
+    axR.text(5.3e-4, axR.get_ylim()[0] * 3, "p*", color="0.4", fontsize=8)
+    axR.set_xlabel("physical error rate p"); axR.set_ylabel(r"$P_{\rm logical}$ (reweighted)")
+    axR.set_title("what the spectrum implies for the logical error rate", fontsize=10)
+    axR.legend(fontsize=8)
+    plt.tight_layout(); plt.show()
+
+
+def generations_lambda(p_star=5e-4, rounds18=7, rounds72=7,
+                       model18="tech1__full_symmetric", model72="tech1_72__full_symmetric"):
+    """Λ = ε18/ε72 per decoder generation, with the zero-bin truncation band.
+
+    The 18-code runs the baseline decoder in every campaign (ghw's wide gamma interval is
+    measured-broken there), so Λ moves only through the 72-code — i.e. this is exactly the
+    system-level Λ the campaign quotes, and the improvement is the decoder's.
+    """
+    s18 = _gen_fullspec("error_model_comparison_18_4_4", model18)
+    v18 = reweight_spectrum(s18, [p_star])
+    e18 = float(per_round(np.asarray([float(v18.P_logical[0])]), rounds18)[0])
+    print(f"Λ = ε18 / ε72  at p* = {p_star}   (18-code = baseline decoder throughout)")
+    print(f"  ε18 = {e18:.3e}\n")
+    print(f"{'72-code decoder':14s} {'ε72':>12s} {'Λ':>10s} {'Λ floor':>10s}   (floor prices"
+          f" every zero bin at 3/T)")
+    for label, run_name, _ in GEN_DIRS:
+        s72 = _gen_fullspec(run_name, model72)
+        if s72 is None:
+            continue
+        filled = fill_spectrum(s72)
+        L = float(reweight_spectrum(filled, [p_star]).P_logical[0])
+        up = FailureSpectrum(weights=filled.weights, trials=filled.trials,
+                             failures=[f if f > 0 else min(3, t)
+                                       for f, t in zip(filled.failures, filled.trials)],
+                             n_expanded=filled.n_expanded, q_base=filled.q_base,
+                             p_ref=filled.p_ref)
+        L_hi = float(reweight_spectrum(up, [p_star]).P_logical[0])
+        e72 = float(per_round(np.asarray([L]), rounds72)[0])
+        e72_hi = float(per_round(np.asarray([L_hi]), rounds72)[0])
+        print(f"{label:14s} {e72:12.3e} {e18/e72:10.0f} {e18/e72_hi:10.0f}")
+    print("\nΛ is a RANGE, not a point: unmeasured (zero-failure) low-weight bins could "
+          "each sit\nanywhere below their 3/T bound, and the floor column prices them all "
+          "at that bound.")

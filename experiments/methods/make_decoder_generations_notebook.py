@@ -38,7 +38,8 @@ p* = 5e-4 (the device convention, one decoder per code):
 | `ghw_deep` | found by the automated decoder loop: `pre_iter=640, num_sets=1200` |
 """)
 
-code(r'''from emc_report import fig_decoder_generations, decoder_generations_table''')
+code(r'''from emc_report import (fig_decoder_generations, decoder_generations_table,
+                        fig_generations_spectra, generations_lambda)''')
 
 md(r"""## The floor, by model and decoder
 
@@ -52,6 +53,26 @@ md(r"""## The same numbers, with denominators
 
 Every figure above should be checkable against a count and a shot budget.""")
 code(r'''decoder_generations_table()''')
+
+md(r"""## The full IS spectrum, and what it costs in LER
+
+The panels above zoom into the sub-onset band. This is the whole measured spectrum for
+the full-symmetric model, plus the reweighted logical error rate it implies — the
+quantity the campaign actually quotes. The sub-onset bins are a handful of events out of
+millions of shots, but they carry disproportionate weight at low p, because weight-3
+faults are vastly more likely than weight-8 ones.""")
+code(r'''fig_generations_spectra("full_symmetric")''')
+
+md(r"""## Λ, by decoder generation
+
+Λ = ε₁₈ / ε₇₂ per round at p*. The [[18,4,4]] code runs the **baseline** decoder in every
+campaign — ghw's wide gamma interval is measured-broken there — so Λ moves only through
+the 72-code, and the improvement shown is the decoder's alone.
+
+Λ is reported as a range. Zero-failure bins are consistent with any rate below their
+rule-of-three bound, so pricing them all at that bound gives the floor; the truth lies
+between.""")
+code(r'''generations_lambda()''')
 
 md(r"""## Reading it
 

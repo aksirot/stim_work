@@ -25,7 +25,8 @@ p* = 5e-4 (the device convention, one decoder per code):
 
 
 ```python
-from emc_report import fig_decoder_generations, decoder_generations_table
+from emc_report import (fig_decoder_generations, decoder_generations_table,
+                        fig_generations_spectra, generations_lambda)
 ```
 
 ## The floor, by model and decoder
@@ -79,6 +80,52 @@ decoder_generations_table()
     meas_idle               —                 —                 —                 —        
     
     (bins with < 100,000 trials shown as — : generation depth cannot resolve a 1e-6-class rate)
+    
+
+## The full IS spectrum, and what it costs in LER
+
+The panels above zoom into the sub-onset band. This is the whole measured spectrum for
+the full-symmetric model, plus the reweighted logical error rate it implies — the
+quantity the campaign actually quotes. The sub-onset bins are a handful of events out of
+millions of shots, but they carry disproportionate weight at low p, because weight-3
+faults are vastly more likely than weight-8 ones.
+
+
+```python
+fig_generations_spectra("full_symmetric")
+```
+
+
+    
+![png](decoder_generations_files/decoder_generations_7_0.png)
+    
+
+
+## Λ, by decoder generation
+
+Λ = ε₁₈ / ε₇₂ per round at p*. The [[18,4,4]] code runs the **baseline** decoder in every
+campaign — ghw's wide gamma interval is measured-broken there — so Λ moves only through
+the 72-code, and the improvement shown is the decoder's alone.
+
+Λ is reported as a range. Zero-failure bins are consistent with any rate below their
+rule-of-three bound, so pricing them all at that bound gives the floor; the truth lies
+between.
+
+
+```python
+generations_lambda()
+```
+
+    Λ = ε18 / ε72  at p* = 0.0005   (18-code = baseline decoder throughout)
+      ε18 = 7.846e-05
+    
+    72-code decoder          ε72          Λ    Λ floor   (floor prices every zero bin at 3/T)
+    baseline          2.011e-07        390        331
+    ghw               2.030e-08       3865       1387
+    ghw_deep          8.011e-09       9794       1207
+    
+    Λ is a RANGE, not a point: unmeasured (zero-failure) low-weight bins could each sit
+    anywhere below their 3/T bound, and the floor column prices them all at that bound.
     
 
 ## Reading it
