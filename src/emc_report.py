@@ -223,14 +223,54 @@ class Report:
 
     # --- §2 Technique I -----------------------------------------------------------------
 
+    def _onset_w0(self, t2name):
+        """The tech2 task's onset w0 for pinning, or None (no task / no distance).
+
+        The 72-code tech2 tasks store only D (their exact f0* is unpinned at that
+        size and some carry no explicit w0 key) — derive w0 = ceil(D/2) from D
+        whenever w0 itself is absent."""
+        if not t2name:
+            return None
+        try:
+            tr = self.load(t2name)
+        except FileNotFoundError:
+            return None
+        w0 = tr.get("w0")
+        if w0 not in (None, ""):
+            return float(w0)
+        D = tr.get("D")
+        return float((int(D) + 1) // 2) if D not in (None, "") else None
+
+    def _pinned_fit_ler(self, spec, K, t1name):
+        """(LER curve, cost, w0) refit with w0 PINNED to the tech2 onset (2026-08-05
+        convention: the onset is the code+circuit's property, not a fit parameter — a
+        free w0 slides down to absorb floor mass, or lands on the sampling floor when
+        there is none). Returns None when no onset is known or the fit fails; callers
+        then keep the runner's stored free fit."""
+        w0 = self._onset_w0(self._tech2_name(t1name))
+        if w0 is None:
+            return None
+        try:
+            fit = fit_failure_spectrum(spec, K=K, model="f5", w0=w0, f0=None)
+            return np.asarray(logical_error_rate_from_ansatz(fit, self.p_grid)), fit.cost, w0
+        except Exception:                                        # noqa: BLE001
+            return None
+
     def load_spectra(self):
         self.tech1 = {}
         for name in self.MODELS:
             r = self.load(f"tech1__{slug(name)}")
-            self.tech1[name] = dict(spec=self.spectrum_of(r), LER=np.asarray(r["LER_fit"]),
-                                    cost=r["fit"]["cost"], W=r["W"])
+            spec = self.spectrum_of(r)
+            pinned = self._pinned_fit_ler(spec, r["K"], f"tech1__{slug(name)}")
+            if pinned is not None:
+                LER, cost, w0p = pinned
+                tag = f"w0 pinned={w0p:.0f}"
+            else:
+                LER, cost = np.asarray(r["LER_fit"]), r["fit"]["cost"]
+                tag = "stored free fit"
+            self.tech1[name] = dict(spec=spec, LER=LER, cost=cost, W=r["W"])
             print(f"{name:16s}: w=1..{r['W'][-1]}, measured f(2)={self.tech1[name]['spec'].f(2):.4f} "
-                  f"({r['shots']} shots total)   f5 fit cost={r['fit']['cost']:.2f}")
+                  f"({r['shots']} shots total)   f5 fit cost={cost:.2f} ({tag})")
         print()
         print(self.section_time("tech1"))
 
@@ -399,13 +439,20 @@ class Report:
         self.tech1_72, self.mc72 = {}, {}
         for name in self.MODELS:
             r = self.load(f"tech1_72__{slug(name)}")
-            self.tech1_72[name] = dict(spec=self.spectrum_of(r), LER=np.asarray(r["LER_fit"]),
-                                       cost=r["fit"]["cost"])
+            spec = self.spectrum_of(r)
+            pinned = self._pinned_fit_ler(spec, r["K"], f"tech1_72__{slug(name)}")
+            if pinned is not None:
+                LER, cost, w0p = pinned
+                tag = f"w0 pinned={w0p:.0f}"
+            else:
+                LER, cost = np.asarray(r["LER_fit"]), r["fit"]["cost"]
+                tag = "stored free fit"
+            self.tech1_72[name] = dict(spec=spec, LER=LER, cost=cost)
             self.mc72[name] = {float(p): v
                                for p, v in self.load(f"mc72__{slug(name)}")["points"].items()}
             n_planned, n_sampled = len(r["W"]), len(r["spectrum"]["weights"])
             print(f"{name:16s}: weights 1..{r['W'][-1]} ({n_sampled}/{n_planned} sampled, "
-                  f"{r['shots']} shots), f5 fit cost={r['fit']['cost']:.2f}, "
+                  f"{r['shots']} shots), f5 fit cost={cost:.2f} ({tag}), "
                   f"MC LER(0.008)={self.mc72[name][0.008][0]:.3e}")
         print()
         print(self.section_time("tech2_72", "tech1_72", "mc72"))
@@ -460,10 +507,13 @@ class Report:
         # f0_lower from a partial L(D) (compute_f0_lower_72.py) — exact f0* is unpinned at that
         # size, so panels get the floor.
         t2 = self._tech2_name(name)
+        w0_pin = None
         if t2:
             try:
                 tr = self.load(t2)
                 w0, f0, f0lo = tr.get("w0"), tr.get("f0"), tr.get("f0_lower")
+                if w0 not in (None, ""):
+                    w0_pin = float(w0)
                 if w0 not in (None, "") and f0 not in (None, ""):
                     ax.plot(w0, float(f0), "*", color=color, ms=12, mec="k", mew=0.5, zorder=6)
                 elif w0 not in (None, "") and f0lo not in (None, ""):
@@ -472,7 +522,11 @@ class Report:
             except FileNotFoundError:
                 pass
         try:
-            if "fit" in r:
+            # w0 pinned to the tech2 onset where known (2026-08-05 convention);
+            # stored free fit only when no onset exists for this spectrum
+            if w0_pin is not None:
+                fw = fit_failure_spectrum(s, K=r["K"], model="f5", w0=w0_pin, f0=None).f
+            elif "fit" in r:
                 fw = lambda wg, r=r: failure_spectrum_ansatz(
                     wg, a=1.0 - 2.0 ** -r["K"], model=r["fit"]["model"], **r["fit"]["params"])
             else:
@@ -677,7 +731,7 @@ class Report:
             axR.plot(p_grid, np.sqrt(self.eps72[m] / self.eps18[m]), "-", color=col,
                      lw=0.8, alpha=0.3)
         axL.plot([], [], "-", color="gray", lw=2, label="reweighted measured (bold)")
-        axL.plot([], [], "-", color="gray", lw=0.8, alpha=0.4, label="f5 fit (faint; drifts at low p)")
+        axL.plot([], [], "-", color="gray", lw=0.8, alpha=0.4, label="f5 fit (faint; w₀ pinned to ⌈D/2⌉)")
         axL.set_xscale("log"); axL.set_yscale("log")
         axL.set_xlabel("physical error rate p"); axL.set_ylabel("per-round logical error rate ε")
         axL.set_title("[[18,4,4]] (solid, 2 rounds) vs [[72,4,8]] (dashed, 4 rounds; ▲=MC)")
@@ -694,6 +748,49 @@ class Report:
         axR.set_title("per-step suppression deficit (crossings at $1/\\lambda=1$ = true $p_{th,i}$)")
         axR.legend(fontsize=8); axR.grid(alpha=0.3, which="both")
         plt.tight_layout(); plt.show()
+
+    def low_p_slope_table(self, k=5):
+        """d ln ε / d ln p of every fig_74 curve over the lowest k grid points.
+
+        Quantifies the low-p fan-out by estimator: rw = the bold reweighted-measured
+        curve (slope → the lightest MEASURED-failing weight), fit = the faint pinned-f5
+        curve (slope → the pinned onset w0). The two agree exactly when the onset bin is
+        measured non-zero and nothing fails below it; they differ when (a) a sub-onset
+        floor is measured (rw shallower — the fit structurally cannot follow), or
+        (b) the onset bin is still empty (rw steeper — a lower bound diving away), or
+        (c) p is not yet asymptotic (both still bending toward their limits).
+        """
+        pg = self.p_grid
+        lo = np.log(pg[:k])
+
+        def slope(y):
+            y = np.asarray(y[:k], float)
+            return float(np.polyfit(lo, np.log(y), 1)[0]) if np.all(y > 0) else None
+
+        def wmin(spec):
+            ws = [w for w, f in zip(spec.weights, spec.failures) if f > 0]
+            return min(ws) if ws else None
+
+        fmt = lambda v: f"{v:6.2f}" if v is not None else "     –"
+        gmt = lambda v: f"{v:5.0f}" if v is not None else "    –"
+        print(f"slopes fitted over p = {pg[0]:.1e} .. {pg[k-1]:.1e} (lowest {k} grid points)")
+        print(f"{'model':16s} | {'rw18':>6} {'fit18':>6} | {'rw72':>6} {'fit72':>6} | "
+              f"{'w0_72':>5} {'wmin72':>6}")
+        for m in self.MODELS:
+            rw18 = per_round(reweight_spectrum(self.tech1[m]["spec"], pg).P_logical,
+                             self.ROUNDS)
+            rw72 = per_round(
+                reweight_spectrum(fill_spectrum(self.tech1_72[m]["spec"]), pg).P_logical,
+                self.ROUNDS72)
+            f18 = per_round(self.tech1[m]["LER"], self.ROUNDS)
+            f72 = per_round(self.tech1_72[m]["LER"], self.ROUNDS72)
+            w0_72 = self._onset_w0(f"tech2_72__{slug(m)}")
+            print(f"{m:16s} | {fmt(slope(rw18))} {fmt(slope(f18))} | "
+                  f"{fmt(slope(rw72))} {fmt(slope(f72))} | "
+                  f"{gmt(w0_72)} {gmt(wmin(self.tech1_72[m]['spec'])):>6}")
+        print("\nrw slope → lightest measured-failing weight; fit slope → pinned w0.")
+        print("rw ≈ fit = onset measured and clean below;  rw < fit with wmin < w0 = "
+              "sub-onset floor;  rw > fit = empty onset bin (rw is a lower bound).")
 
     # --- §7.5 marginal Λ ------------------------------------------------------------------
 
@@ -843,8 +940,9 @@ class Report:
                                   ("72", self.ROUNDS72, eps72_fit_x5)):
             try:
                 r = self.load(f"asym__full_{lbl}")
+                w0p = self._onset_w0(f"tech2_asym__full_{lbl}")
                 fit = fit_failure_spectrum(self.spectrum_of(r), K=r["K"], model="f5",
-                                           w0=None, f0=None)
+                                           w0=w0p, f0=None)
                 out[X5] = per_round(logical_error_rate_from_ansatz(fit, p_grid), rounds_)
             except Exception as e:                 # too-sparse spectrum / no converged fit
                 print(f"full ×5 mix ({lbl}-code): f5 fit skipped ({e}) — faint curve omitted")
@@ -1588,8 +1686,9 @@ def _weight_map(report, p_lo=1e-5, p_hi=5e-3, models=None, band=True):
     decoder; this says how heavy a fault has to be before it does. Bands are ±1 s.d. of
     the failing-weight distribution (spread of failures, not uncertainty). The dashed
     line is the perfect-decoder onset w0 = ceil(D/2); the dotted grey line is the mean
-    number of faults in an ARBITRARY shot (N·q), so the gap between the two shows how far
-    into the tail a failure sits.
+    number of faults in an ARBITRARY shot (N·q, full-symmetric model — the channel
+    models carry a fraction of the noise and have proportionally lower means), so the
+    gap between the two shows how far into the tail a failure sits.
     """
     models = list(models or report.MODELS)
     p_grid = np.geomspace(p_lo, p_hi, 70)
@@ -1605,7 +1704,10 @@ def _weight_map(report, p_lo=1e-5, p_hi=5e-3, models=None, band=True):
             except FileNotFoundError:
                 continue
             spec = report.spectrum_of(r)
-            n_exp, q_base, p_ref = spec.n_expanded, spec.q_base, spec.p_ref
+            # reference line = FULL model's mean fault count; channel models carry a
+            # fraction of the noise, so "last model loaded" here understated it ~8x
+            if m == "full symmetric" or n_exp is None:
+                n_exp, q_base, p_ref = spec.n_expanded, spec.q_base, spec.p_ref
             mean, sd, ok = _failing_weight_stats(spec, p_grid)
             col = report.COLORS.get(m, "0.4")
             ax.plot(p_grid[ok], mean[ok], "-", lw=2, color=col, label=m)
@@ -1614,7 +1716,7 @@ def _weight_map(report, p_lo=1e-5, p_hi=5e-3, models=None, band=True):
                                 color=col, alpha=0.10, lw=0)
         if n_exp is not None:
             ax.plot(p_grid, n_exp * q_base * (p_grid / p_ref), ":", color="0.45", lw=1.4,
-                    label="mean faults per shot (any shot)")
+                    label="mean faults per shot (full symmetric)")
         ax.axhline(onset, color="k", ls="--", lw=1.0)
         ax.text(p_grid[1], onset + 0.15, f"onset $w_0$={onset}", fontsize=8)
         ax.set_xscale("log")
@@ -1642,14 +1744,30 @@ def _ansatz_vs_measured(report, model="full symmetric", w_hi=16, p_lo=1e-5, p_hi
     track while the binomial mass sits on weights the ansatz fits; below that the mass
     moves onto the floor and the ansatz becomes OPTIMISTIC — it cannot represent mass it
     has no functional form for. Values < 1 mean the ansatz under-predicts the error.
+
+    Conventions (asked and settled 2026-08-05): the reweighted-measured LER uses the
+    point estimate F/T per bin, so zero-failure bins contribute EXACTLY ZERO — no 3/T
+    is ever priced into a quoted curve (bounds appear only in explicitly-labeled floor
+    columns/markers). Symmetrically, the ansatz is drawn only from its fitted w0 up,
+    because it is identically zero below. Consequence: a divergence in this figure can
+    only come from MEASURED nonzero sub-onset bins; on a decoder whose sub-onset bins
+    are all zero (ghw_deep), both panels should show agreement, and the triangles are
+    ceilings consistent with that — not disagreements.
     """
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
     pg = np.geomspace(p_lo, p_hi, 60)
 
-    # LEFT: one model, measured bins vs the fitted curve
+    # LEFT: one model, measured bins vs the fitted curve. w0 is PINNED to the
+    # structural onset ceil(D/2) from Technique II (2026-08-05 convention): the onset
+    # is the code+circuit's property, not a fit parameter — a free w0 slides below it
+    # to absorb floor mass, which is exactly the pathology this figure exists to show.
+    def _onset72(mdl):
+        return (report.load(f"tech2_72__{slug(mdl)}")["D"] + 1) // 2
+
     r = report.load(f"tech1_72__{slug(model)}")
     spec = report.spectrum_of(r)
-    fit = fit_failure_spectrum(spec, K=r.get("K", 4), model="f5", w0=None, f0=None)
+    fit = fit_failure_spectrum(spec, K=r.get("K", 4), model="f5",
+                               w0=float(_onset72(model)), f0=None)
     par = fit.params if hasattr(fit, "params") else {}
     W = np.asarray(spec.weights); F = np.asarray(spec.failures, float)
     T = np.asarray(spec.trials, float)
@@ -1658,28 +1776,36 @@ def _ansatz_vs_measured(report, model="full symmetric", w_hi=16, p_lo=1e-5, p_hi
     se = 1.96 * np.sqrt(rate * (1 - rate) / T[m])
     axL.errorbar(W[m], rate, yerr=[np.minimum(se, rate * 0.999), se], fmt="o", ms=6,
                  color="crimson", capsize=2, label="measured f(w)  (95% CI)")
-    z = (W <= w_hi) & (F == 0) & (T > 0)
+    # zero bins are drawn ONLY at/above the onset (there they flag sampling-depth
+    # gaps). Below onset both the ansatz and the point estimate are exactly 0, so a
+    # 3/T ceiling marker there compares a bound to a structural zero — no content.
+    onset_pin = _onset72(model)
+    z = (W <= w_hi) & (W >= onset_pin) & (F == 0) & (T > 0)
     if z.any():
         axL.plot(W[z], 3.0 / T[z], "v", ms=7, mfc="none", mec="crimson", mew=1.5,
-                 label="zero-failure bin (3/T bound)")
-    ww = np.arange(2, w_hi + 1, dtype=float)
-    fa = failure_spectrum_ansatz(ww, par.get("w0", 0.0), par.get("f0", 0.0), 1.0, model="f5",
+                 label="zero-failure bin at/above onset (<3/T)")
+    # the ansatz is IDENTICALLY ZERO below w0: draw nothing there (a floor-clamped
+    # segment on a log axis reads as a tiny nonzero prediction, which it is not)
+    w0_fit = par.get("w0", 0.0)
+    ww = np.linspace(max(w0_fit, 2.0), w_hi, 200)
+    fa = failure_spectrum_ansatz(ww, w0_fit, par.get("f0", 0.0), 1.0, model="f5",
                                  gamma1=par.get("gamma1"), gamma2=par.get("gamma2"),
                                  wc=par.get("wc"))
     axL.plot(ww, np.maximum(fa, TINY), "-", color="0.35", lw=2,
-             label=f"f5 ansatz (w₀={par.get('w0', float('nan')):.1f})")
+             label=f"f5 ansatz (=0 below w₀={w0_fit:.0f} = ⌈D/2⌉, pinned)")
     axL.axvline(par.get("w0", np.nan), color="0.35", ls=":", lw=1)
     axL.set_yscale("log"); axL.set_xlabel("fault weight w"); axL.set_ylabel("f(w)")
     axL.set_title(f"{model} — the floor is flat; the ansatz cannot be", fontsize=10)
     axL.set_xticks(range(2, w_hi + 1, 2))
     axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=8)
 
-    # RIGHT: LER ratio for every model
+    # RIGHT: LER ratio for every model (w0 pinned to each model's own onset)
     for mdl in report.MODELS:
         try:
             rm = report.load(f"tech1_72__{slug(mdl)}")
             sp = report.spectrum_of(rm)
-            ft = fit_failure_spectrum(sp, K=rm.get("K", 4), model="f5", w0=None, f0=None)
+            ft = fit_failure_spectrum(sp, K=rm.get("K", 4), model="f5",
+                                      w0=float(_onset72(mdl)), f0=None)
         except Exception:                                        # noqa: BLE001
             continue
         meas = np.array([float(reweight_spectrum(fill_spectrum(sp), [p]).P_logical[0])
@@ -1692,7 +1818,8 @@ def _ansatz_vs_measured(report, model="full symmetric", w_hi=16, p_lo=1e-5, p_hi
     axR.set_xscale("log"); axR.set_yscale("log")
     axR.set_xlabel("physical error rate p")
     axR.set_ylabel("LER(f5 ansatz) / LER(reweighted measured)")
-    axR.set_title("below ~1e-3 the ansatz is OPTIMISTIC (misses the floor)", fontsize=10)
+    axR.set_title("ratio < 1 at low p = ansatz OPTIMISTIC (a MEASURED floor it cannot hold)",
+                  fontsize=10)
     axR.grid(alpha=0.3, which="both"); axR.legend(fontsize=7)
     plt.tight_layout(); plt.show()
 

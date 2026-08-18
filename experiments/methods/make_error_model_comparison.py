@@ -284,7 +284,16 @@ code(r'''R.fig_ansatz_vs_measured()   # ansatz vs measured: the floor is flat, t
 
 code(r'''R.lambda_table()''')
 
-code(r'''R.fig_74()   # bold = reweighted measured, faint = f5 fit (drifts at low p)''')
+code(r'''R.fig_74()   # bold = reweighted measured, faint = pinned f5 fit''')
+
+md(r"""**Low-p slopes, curve by curve.** The asymptotic slope of the bold (reweighted)
+curve is the lightest weight with a *measured* failure; the faint (pinned-f5) curve's
+slope is the onset $w_0$ itself. Agreement means the onset bin is measured and nothing
+fails below it. `rw < fit` with `wmin < w0` is a measured sub-onset floor (mass the
+ansatz structurally cannot hold); `rw > fit` is an *empty* onset bin — the reweighted
+curve is a lower bound diving away, and the fit is the better extrapolation there.""")
+
+code(r'''R.low_p_slope_table()''')
 
 # ===========================================================================
 md(r"""## §7.5 — Marginal Λ: the ablations on the larger code

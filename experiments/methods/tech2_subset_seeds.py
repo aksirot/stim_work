@@ -47,9 +47,14 @@ from min_weight import find_min_weight_logicals
 MAX_SUBSETS = 400          # per (logical, weight): enumerate all if C(D,w) <= this
 
 
-def build_ctx(code):
+def build_ctx(code, model="full symmetric"):
     if code == "72":
-        circ = rmc.make_circuit72("full symmetric", rmc.P_REF)
+        # model selects the DEM the logicals/subsets live in (e.g. "CZ only", whose
+        # circuit distance 10 gives its own onset 5 — the 2026-08-05 deep-campaign
+        # w=4 event is SUB-onset there). Calibration stays FULL SYMMETRIC at
+        # DECODER_P: the device convention, matching how the campaign decodes the
+        # channel tasks.
+        circ = rmc.make_circuit72(model, rmc.P_REF)
         calib = rmc.make_circuit72("full symmetric", rmc.DECODER_P)
         decs = {
             "baseline": dict(rmc.DEC_CFG),
@@ -58,8 +63,9 @@ def build_ctx(code):
         }
         make = lambda cfg: rmc.DEC(calib, cfg)
         lib_dir = REPO_ROOT / "runs" / "decoder_loop"
-        onset_json = REPO_ROOT / "runs" / "splitting_crosscheck" / "72_full_ghw_onset.json"
-        meta = dict(model="full symmetric", family="symmetric", code="bb72")
+        onset_json = (REPO_ROOT / "runs" / "splitting_crosscheck" / "72_full_ghw_onset.json"
+                      if model == "full symmetric" else pathlib.Path("/nonexistent"))
+        meta = dict(model=model, family="symmetric", code="bb72")
     else:
         from experiment_runner import load_config, build_circuit, make_decoder
         from bb_code_sim import RelayBPDecoder
@@ -85,13 +91,17 @@ def build_ctx(code):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--code", choices=["72", "144"], default="72")
+    ap.add_argument("--model", default="full symmetric",
+                    help='72-code noise model, e.g. "CZ only" (D=10 -> onset 5)')
     ap.add_argument("--search", type=int, default=0,
                     help="BP-OSD trials for ADDITIONAL logicals (0 = cached only)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="parallel BP-OSD workers for --search")
     ap.add_argument("--distance", type=int, default=None, help="override D")
     ap.add_argument("--no-add", action="store_true", help="report only, do not touch library")
     a = ap.parse_args(argv)
 
-    circ, dec_cfgs, make, lib_dir, onset_json, meta = build_ctx(a.code)
+    circ, dec_cfgs, make, lib_dir, onset_json, meta = build_ctx(a.code, a.model)
     probs, det, obs = _parse_dem(circ)
     c2m, q_base, _ = _expand(probs, None)
     m2c = {}
@@ -111,7 +121,8 @@ def main(argv=None):
         D = a.distance or (len(min(logicals, key=len)) if logicals else None)
         t0 = time.time()
         print(f"[search] BP-OSD for weight-{D} logicals, {a.search} trials ...", flush=True)
-        found = find_min_weight_logicals(circ, D, max_trials=a.search, seed=7)
+        found = find_min_weight_logicals(circ, D, max_trials=a.search, seed=7,
+                                         workers=a.workers, patience=a.search)
         print(f"[search] +{len(found)} logicals in {time.time()-t0:.0f}s", flush=True)
         logicals += [frozenset(int(m) for m in s) for s in found]
     # keep genuinely zero-syndrome, non-trivial ones only
@@ -178,7 +189,25 @@ def main(argv=None):
         results[name] = row
 
     # --- library ---
-    added = 0
+    # Convention (matches add_device_specimens_to_library): the library's mech indices
+    # live in the FULL-SYMMETRIC DEM. Supports found in a channel DEM are remapped by
+    # (det,obs)-footprint before appending; syndrome equality is asserted per entry.
+    remap = None
+    if a.code == "72" and a.model != "full symmetric":
+        circ_f = rmc.make_circuit72("full symmetric", rmc.P_REF)
+        _, det_f, obs_f = _parse_dem(circ_f)
+        foot = {(det_f[i].tobytes(), obs_f[i].tobytes()): i for i in range(det_f.shape[0])}
+
+        def remap(S):
+            mapped = [foot.get((det[m].tobytes(), obs[m].tobytes())) for m in S]
+            if any(m is None for m in mapped) or len(set(mapped)) != len(S):
+                return None
+            syn_m = np.bitwise_xor.reduce(det[list(S)], axis=0)
+            syn_f = np.bitwise_xor.reduce(det_f[sorted(mapped)], axis=0)
+            assert (syn_m == syn_f).all()
+            return frozenset(int(m) for m in mapped)
+
+    added = unmapped = 0
     if not a.no_add and new_fail_supports:
         lib_path = lib_dir / "library.json"
         lib = json.loads(lib_path.read_text(encoding="utf-8")) if lib_path.exists() \
@@ -186,6 +215,11 @@ def main(argv=None):
         have = {frozenset(e["mechs"]) for e in lib["entries"]}
         for S in new_fail_supports:
             fs = frozenset(int(m) for m in S)
+            if remap is not None:
+                fs = remap(S)
+                if fs is None:
+                    unmapped += 1
+                    continue
             if fs not in have:
                 # regime matters: below D/2 a failure is a decoder DEFECT; at exactly
                 # D/2 the true fault and its complement tie, so even a perfect decoder
@@ -197,10 +231,14 @@ def main(argv=None):
         ws = [e["w"] for e in lib["entries"]]
         lib["n"] = len(ws); lib["w_min"] = min(ws)
         lib_path.write_text(json.dumps(lib), encoding="utf-8")
-        print(f"[lib] +{added} entries -> n={lib['n']}, w_min={lib['w_min']}", flush=True)
+        print(f"[lib] +{added} entries ({unmapped} unmappable) -> n={lib['n']}, "
+              f"w_min={lib['w_min']}", flush=True)
 
-    out = lib_dir / "tech2_subset_seeds.json"
-    out.write_text(json.dumps(dict(code=a.code, D=D, w0=w0, n_logicals=len(keep),
+    mslug = a.model.replace(" ", "_")
+    out = lib_dir / (f"tech2_subset_seeds.json" if a.model == "full symmetric"
+                     else f"tech2_subset_seeds_{mslug}.json")
+    out.write_text(json.dumps(dict(code=a.code, model=a.model, D=D, w0=w0,
+                                   n_logicals=len(keep),
                                    weights=weights, added=added,
                                    results={k: {str(w): v for w, v in r.items()}
                                             for k, r in results.items()}), indent=1),

@@ -324,8 +324,13 @@ def failure_spectrum_ansatz(
     elif model == "f5":
         if gamma1 is None or gamma2 is None or wc is None:
             raise ValueError("model 'f5' requires gamma1, gamma2, wc")
-        crossover = (1.0 + (w / wc) ** c) / (1.0 + (w0 / wc) ** c)
-        power = ratio ** gamma1 * crossover ** ((gamma2 - gamma1) / c)
+        # log-space: the direct product overflows to inf*0=nan for extreme fitted
+        # (gamma1, gamma2, wc); the envelope saturates at a long before exp(700)
+        with np.errstate(divide="ignore"):
+            log_crossover = np.log1p((w / wc) ** c) - np.log1p((w0 / wc) ** c)
+            log_power = np.where(ratio > 0, gamma1 * np.log(ratio), -np.inf) \
+                + ((gamma2 - gamma1) / c) * log_crossover
+        power = np.exp(np.clip(log_power, -745.0, 700.0))
     else:
         raise ValueError(f"unknown ansatz model {model!r} (use f2/f3/f5)")
 
@@ -413,6 +418,12 @@ def fit_failure_spectrum(
     F = np.asarray(spectrum.failures, dtype=float)
 
     mask = (F > 0) & (T > 0)
+    # A PINNED w0 restricts the fit's domain to w >= w0: the ansatz is identically
+    # zero below its onset, so a measured sub-onset bin (a decoder floor) is outside
+    # the family — including it puts an unfittable residual in the loss that torques
+    # the shape parameters. Sub-onset mass is reported separately, never fitted.
+    if w0 is not None:
+        mask &= w >= float(w0) - 1e-9
     if not mask.any():
         raise ValueError(
             "no sampled weight had any observed failures, so the spectrum is "
