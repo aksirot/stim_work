@@ -742,7 +742,69 @@ def _append_noise(circuit: stim.Circuit, op: str, targets: List[int], p: float) 
         circuit.append(op, targets, p)
 
 
-def _append_idle(circuit: stim.Circuit, pool: Optional[List[int]],
+class IdleAccumulator:
+    """Interleaved-schedule idle model (2026-08-18 audit fix).
+
+    The serialized emission of LPU/adapter check groups charges idle per EMITTED
+    sub-layer — 25-40 layer-charges per round where the paper's ~12-timestep
+    interleaved deformed cycle charges ~12. Measured inflation: y1 LPU rounds 6.7x
+    a bare round's mass, inter-module merged rounds 4.5x per module (91% of it
+    DEPOLARIZE1) — the dominant cause of the Fig-7 LER discrepancy.
+
+    This object slots in anywhere an ``idle_pool`` list is accepted: ``_append_idle``
+    then RECORDS per-qubit activity instead of emitting. ``flush(circuit, p)`` once
+    per round charges each pool qubit k_q = max(0, depth - active_q) idle layers as
+    a single DEPOLARIZE1(1-(1-p)^k_q) — the charge an interleaved cycle of ``depth``
+    timesteps would give it. Call order and serialization no longer matter: only
+    per-qubit activity counts do, which is exactly the interleave's accounting.
+    Placement (end of round) is within the fail-fast pool model's fidelity: idle
+    mass lands between the same pairs of syndrome extractions.
+
+    For a module built in a scratch circuit and shifted (the B-frame pattern), pass
+    ``accum.shifted(OFF)`` so activity records in true post-shift indices while the
+    scratch stays emission-free.
+    """
+
+    def __init__(self, pool, depth: int):
+        self.pool = [int(q) for q in pool]
+        self.depth = int(depth)
+        self.active = {q: 0 for q in self.pool}
+        self.layers = 0                      # diagnostics only
+
+    def record(self, active: Set[int]) -> None:
+        self.layers += 1
+        for q in active:
+            if q in self.active:
+                self.active[q] += 1
+
+    def shifted(self, off: int) -> "_ShiftedIdleView":
+        return _ShiftedIdleView(self, off)
+
+    def flush(self, circuit: stim.Circuit, p: float) -> None:
+        if p <= 0:
+            return
+        groups: dict = {}
+        for q in self.pool:
+            k = max(0, self.depth - self.active[q])
+            if k:
+                groups.setdefault(k, []).append(q)
+        for k in sorted(groups):
+            circuit.append("DEPOLARIZE1", sorted(groups[k]), 1.0 - (1.0 - p) ** k)
+        self.active = {q: 0 for q in self.pool}
+        self.layers = 0
+
+
+class _ShiftedIdleView:
+    """Records activity into a base IdleAccumulator with a frame offset applied."""
+
+    def __init__(self, base: IdleAccumulator, off: int):
+        self.base, self.off = base, off
+
+    def record(self, active: Set[int]) -> None:
+        self.base.record({int(q) + self.off for q in active})
+
+
+def _append_idle(circuit: stim.Circuit, pool,
                  active: Set[int], p: float) -> None:
     """DEPOLARIZE1(p) on every pool qubit not active in the current sub-layer.
 
@@ -751,11 +813,20 @@ def _append_idle(circuit: stim.Circuit, pool: Optional[List[int]],
     the full set of physical qubits alive in this circuit region (None = disabled),
     so the same helper serves bare rounds (288 gross qubits) and LPU rounds
     (gross + edge/vertex/cycle qubits).
+
+    ``pool`` may also be an IdleAccumulator (or its shifted view): activity is then
+    recorded for a per-round interleaved-schedule charge instead of emitted here —
+    see IdleAccumulator. Legacy list pools reproduce the serialized model
+    bit-identically.
     """
-    if pool is not None and p > 0:
-        idle = [q for q in pool if q not in active]
-        if idle:
-            circuit.append("DEPOLARIZE1", idle, p)
+    if pool is None or p <= 0:
+        return
+    if hasattr(pool, "record"):
+        pool.record(active if isinstance(active, set) else set(active))
+        return
+    idle = [q for q in pool if q not in active]
+    if idle:
+        circuit.append("DEPOLARIZE1", idle, p)
 
 
 def build_bb_syndrome_cycle(
@@ -2869,6 +2940,7 @@ def build_joint_x1x1_circuit(
     include_memory_observables: bool = False,
     idle_noise: bool = False,
     close_cycles: bool = True,
+    interleaved_idle_depth: Optional[int] = None,
 ) -> stim.Circuit:
     """Gross-to-gross INTER-MODULE joint measurement of X̄₁(A)⊗X̄₁(B) via the
     code-code adapter (Tour de Gross arXiv:2506.03094). Structurally the X̄₁
@@ -2952,19 +3024,31 @@ def build_joint_x1x1_circuit(
         return xA, zA, xB, zB
 
     def lpu_round_both():
+        # Interleaved idle model (2026-08-18): one accumulator spans the WHOLE merged
+        # round — A's cycle, B's cycle (recorded in true frame via the shifted view;
+        # the scratch stays emission-free so the shift moves only gates), and the
+        # adapter — then a single per-qubit charge as the ~depth-timestep interleaved
+        # deformed cycle would give. Legacy (None): the serialized per-layer pools.
+        accum = (IdleAccumulator(range(BASE + N_ADAPTER_ANC), interleaved_idle_depth)
+                 if (interleaved_idle_depth and idle_noise) else None)
+        poolA = accum if accum is not None else lpu_pool
+        poolB = accum.shifted(OFF) if accum is not None else lpu_pool
+        pool_ad = accum if accum is not None else merged_pool
         build_lpu_cycle(circuit, error_model, aug, first_round=False, branch='X1',
-                        idle_pool=lpu_pool)
+                        idle_pool=poolA)
         xA = trk.add(N_C); zA = trk.add(N_C)
         vA = trk.add(12); uA = trk.add(5)
         scratch = stim.Circuit()
         build_lpu_cycle(scratch, error_model, aug, first_round=False, branch='X1',
-                        idle_pool=lpu_pool)
+                        idle_pool=poolB)
         circuit.__iadd__(_shift_circuit(scratch, OFF))
         xB = trk.add(N_C); zB = trk.add(N_C)
         vB = trk.add(12); uB = trk.add(5)
         build_adapter_cycle(circuit, error_model, adapter, p_coupler,
-                            offset_b=OFF, adapter_base=BASE, idle_pool=merged_pool)
+                            offset_b=OFF, adapter_base=BASE, idle_pool=pool_ad)
         ad = trk.add(N_ADAPTER_ANC)   # 32 raw: (bridgeA,bridgeB)*11 then U_B*10
+        if accum is not None:
+            accum.flush(circuit, p)
         return dict(xA=xA, zA=zA, vA=vA, uA=uA, xB=xB, zB=zB, vB=vB, uB=uB, ad=ad)
 
     # ---- noiseless encoding round ----

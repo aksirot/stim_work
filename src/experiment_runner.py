@@ -117,7 +117,8 @@ def _build_intermodule_circuit(cfg: "Config"):
         em, C=cfg.lpu_C, d_init=cfg.lpu_d_init,
         p_coupler=cfg.p_ref * r,
         include_memory_observables=cfg.lpu_include_memory_obs,
-        idle_noise=cfg.lpu_idle_noise)
+        idle_noise=cfg.lpu_idle_noise,
+        interleaved_idle_depth=cfg.lpu_interleaved_idle_depth)
 
 
 def _build_automorphism_circuit(cfg: "Config"):
@@ -182,6 +183,12 @@ class Config:
     lpu_d_init: int = 12
     lpu_operators: str = "Y1"             # joint_pauli experiment: which joint Pauli to measure
     lpu_idle_noise: bool = False          # paper-faithful idle DEPOLARIZE1 in tdg builders
+    # Interleaved idle model (2026-08-18 audit): charge each qubit per LPU/merged round
+    # as a ~N-timestep interleaved deformed cycle would (k = depth - active layers),
+    # instead of per serialized emission layer (measured 4.5-6.7x overcharge). None =
+    # legacy serialized model (bit-identical circuits, caches stay valid). 12 = the
+    # paper's cycle depth. Threaded so far: inter_module.
+    lpu_interleaved_idle_depth: Optional[int] = None
     lpu_include_memory_obs: bool = True   # joint_pauli: outcome + 11 commuting Z̄ memory obs
     lpu_shift: Optional[str] = None       # automorphism experiment: 'x' or 'y' (None = builder default 'y')
     p_coupler_factor: float = 1.0         # inter_module: p_coupler = p_coupler_factor * p_phys (Bell-pair
@@ -916,6 +923,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                               lpu_C=cfg.lpu_C, lpu_d_init=cfg.lpu_d_init,
                               lpu_operators=cfg.lpu_operators,
                               lpu_idle_noise=cfg.lpu_idle_noise,
+                              lpu_interleaved_idle_depth=cfg.lpu_interleaved_idle_depth,
                               lpu_include_memory_obs=cfg.lpu_include_memory_obs,
                               lpu_shift=cfg.lpu_shift,
                               p_coupler_factor=cfg.p_coupler_factor,
