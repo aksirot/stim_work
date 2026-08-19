@@ -10,8 +10,11 @@
 # Each shard gets a distinct seed + tag; combine afterwards (locally) with
 # splitting_shard_combine.py. SIF points at the built image on this cluster.
 set -euo pipefail
-TARGET="${1:?usage: fish_split_launch.sh {gross|72} N_SHARDS}"
-N="${2:?usage: fish_split_launch.sh {gross|72} N_SHARDS}"
+# NB no braces inside ${:?...} messages: a '}' there closes the expansion early and
+# appends the rest as literal text to the VALUE (bit us on fish 2026-08-19: N became
+# "8 N_SHARDS}" and $((N-1)) died on the '}').
+TARGET="${1:?usage: fish_split_launch.sh gross-or-72 N_SHARDS}"
+N="${2:?usage: fish_split_launch.sh gross-or-72 N_SHARDS}"
 SIF="${SIF:-/tmp/bbcode.sif}"
 THREADS="${THREADS:-20}"
 
