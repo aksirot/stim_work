@@ -38,10 +38,18 @@ for i in $(seq 0 $((N - 1))); do
     ENVS="FL_TAG=s$i FL_SEED=$((100 + i)) FL_L=2 FL_M=3 FL_TINIT=${FL_TINIT:-1e5} FL_TCAP=${FL_TCAP:-4e5}"
     ARGS="ladder"
   fi
+  # ABSOLUTE python path: apptainer inherits the HOST env and binds $HOME, so a
+  # login-shell conda puts ~/miniconda3/bin first on PATH inside the container and
+  # bare "python" resolves to the host conda python ("no module named numpy", fish
+  # 2026-08-19). /usr/local/bin/python is the image's own (python:3.11-slim base).
+  # Env inheritance is kept ON deliberately — the GS_*/FL_* shard vars ride on it.
+  # PYTHONNOUSERSITE guards against host ~/.local site-packages shadowing via the
+  # $HOME bind.
   nohup env $ENVS RAYON_NUM_THREADS=$THREADS \
     apptainer exec --bind "$PWD:/work" --pwd /work \
       --env "PYTHONPATH=/work/src:/work/experiments/methods" \
-      "$SIF" python -u "$DRIVER" $ARGS \
+      --env "PYTHONNOUSERSITE=1" \
+      "$SIF" /usr/local/bin/python -u "$DRIVER" $ARGS \
     > "$LOGDIR/shard_$i.log" 2>&1 &
   echo "shard $i: pid $!"
 done
