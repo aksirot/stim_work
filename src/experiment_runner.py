@@ -99,7 +99,8 @@ def _build_joint_pauli_circuit(cfg: "Config"):
     return tdg.build_joint_pauli_circuit(
         em, operators=cfg.lpu_operators, C=cfg.lpu_C, d_init=cfg.lpu_d_init,
         include_memory_observables=cfg.lpu_include_memory_obs,
-        idle_noise=cfg.lpu_idle_noise)
+        idle_noise=cfg.lpu_idle_noise,
+        interleaved_idle_depth=cfg.lpu_interleaved_idle_depth)
 
 
 def _build_intermodule_circuit(cfg: "Config"):

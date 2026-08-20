@@ -783,13 +783,21 @@ class IdleAccumulator:
     def flush(self, circuit: stim.Circuit, p: float) -> None:
         if p <= 0:
             return
-        groups: dict = {}
-        for q in self.pool:
-            k = max(0, self.depth - self.active[q])
-            if k:
-                groups.setdefault(k, []).append(q)
-        for k in sorted(groups):
-            circuit.append("DEPOLARIZE1", sorted(groups[k]), 1.0 - (1.0 - p) ** k)
+        if self.depth < 0:
+            # FLAT mode (depth = -1): one DEPOLARIZE1(p) per pool qubit per round,
+            # activity ignored. Matches the fail-fast paper's Table-1 fingerprint
+            # for BB(12)-circuit-Y1 (expanded/compressed = 5.03 -> idle mechanism
+            # multiplicity ~5 = a single p-rate charge per round, vs our serialized
+            # per-sub-layer model's 17-24).
+            circuit.append("DEPOLARIZE1", sorted(self.pool), p)
+        else:
+            groups: dict = {}
+            for q in self.pool:
+                k = max(0, self.depth - self.active[q])
+                if k:
+                    groups.setdefault(k, []).append(q)
+            for k in sorted(groups):
+                circuit.append("DEPOLARIZE1", sorted(groups[k]), 1.0 - (1.0 - p) ** k)
         self.active = {q: 0 for q in self.pool}
         self.layers = 0
 
@@ -2655,6 +2663,7 @@ def build_joint_pauli_circuit(
     d_init: int = 12,
     include_memory_observables: bool = True,
     idle_noise: bool = False,
+    interleaved_idle_depth: Optional[int] = None,
 ) -> stim.Circuit:
     """Ȳ₁ in-module measurement through the FULL LPU (paper "BB(12)-circuit-Y1").
 
@@ -2740,6 +2749,21 @@ def build_joint_pauli_circuit(
     lpu_pool = list(range(N_TOTAL_QUBITS)) if idle_noise else None
 
     circuit = stim.Circuit()
+
+    # Per-round idle handles (2026-08-20): interleaved_idle_depth switches the
+    # serialized per-sub-layer idle model to a per-round charge — depth>0 = the
+    # interleaved-schedule accounting (k = depth - active), depth=-1 = FLAT
+    # (one DEPOLARIZE1(p) per pool qubit per round; the fail-fast Table-1
+    # fingerprint for this circuit). None = legacy, bit-identical.
+    def _round_pool(pool):
+        if interleaved_idle_depth and idle_noise and pool is not None:
+            return IdleAccumulator(pool, interleaved_idle_depth)
+        return pool
+
+    def _flush(handle):
+        if hasattr(handle, "flush"):
+            handle.flush(circuit, p)
+
     trk = _MeasTracker()
     data_all = list(range(N_DATA))
     circuit.append("R", data_all)
@@ -2789,8 +2813,10 @@ def build_joint_pauli_circuit(
 
     # ---- d_init noisy bare rounds ----
     for r in range(1, d_init + 1):
+        h = _round_pool(bare_pool)
         build_bb_syndrome_cycle(circuit, error_model, reset_data=False,
-                                reset_ancilla=True, idle_pool=bare_pool)
+                                reset_ancilla=True, idle_pool=h)
+        _flush(h)
         x0 = trk.add(N_C)
         z0 = trk.add(N_C)
         circuit.append("TICK")
@@ -2805,10 +2831,13 @@ def build_joint_pauli_circuit(
         prev_x, prev_z = x0, z0
 
     # ---- edge init: all 47 in |0⟩ (uniform convention — no |+⟩ anywhere) ----
+    # (per-round idle models fold this single-layer idle into the first LPU
+    # round's charge rather than double-charging here)
     edge_all = sorted(EDGE_QUBIT.values())
     circuit.append("R", edge_all)
     _append_noise(circuit, "X_ERROR", edge_all, pm)
-    _append_idle(circuit, lpu_pool, set(edge_all), p)
+    if not (interleaved_idle_depth and idle_noise):
+        _append_idle(circuit, lpu_pool, set(edge_all), p)
 
     # ---- C noisy full-LPU rounds ----
     n_v = len(full.vertex_keys)       # 24 records / round
@@ -2830,7 +2859,9 @@ def build_joint_pauli_circuit(
     v_lpu: List[int] = []
     u_lpu: List[int] = []
     for c in range(C):
-        build_full_lpu_cycle(circuit, error_model, full, idle_pool=lpu_pool)
+        h = _round_pool(lpu_pool)
+        build_full_lpu_cycle(circuit, error_model, full, idle_pool=h)
+        _flush(h)
         x_lpu.append(trk.add(N_C))
         z_lpu.append(trk.add(N_C))
         v_lpu.append(trk.add(n_v))
@@ -2864,13 +2895,16 @@ def build_joint_pauli_circuit(
     _append_noise(circuit, "X_ERROR", edge_all, pm)
     circuit.append("M", edge_all)
     e0 = trk.add(len(edge_all))
-    _append_idle(circuit, lpu_pool, set(edge_all), p)
+    if not (interleaved_idle_depth and idle_noise):
+        _append_idle(circuit, lpu_pool, set(edge_all), p)
     circuit.append("TICK")
     edge_rec = {q: e0 + i for i, q in enumerate(edge_all)}
 
     # ---- 1 bare return cycle + boundary detectors ----
+    h = _round_pool(bare_pool)
     build_bb_syndrome_cycle(circuit, error_model, reset_data=False,
-                            reset_ancilla=True, idle_pool=bare_pool)
+                            reset_ancilla=True, idle_pool=h)
+    _flush(h)
     xr = trk.add(N_C)
     zr = trk.add(N_C)
     circuit.append("TICK")
@@ -2891,8 +2925,10 @@ def build_joint_pauli_circuit(
 
     # ---- d_init trailing bare rounds ----
     for r in range(1, d_init + 1):
+        h = _round_pool(bare_pool)
         build_bb_syndrome_cycle(circuit, error_model, reset_data=False,
-                                reset_ancilla=True, idle_pool=bare_pool)
+                                reset_ancilla=True, idle_pool=h)
+        _flush(h)
         x0 = trk.add(N_C)
         z0 = trk.add(N_C)
         circuit.append("TICK")
