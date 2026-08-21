@@ -16,6 +16,20 @@ N="${2:?usage: fish_split_podman.sh gross-or-72 N_SHARDS}"
 IMG="${IMG:?set IMG=localhost/<name:tag> (see podman images)}"
 THREADS="${THREADS:-20}"
 
+# Fish purges its podman store on a schedule (observed 2026-08-21): the tarball on
+# shared storage is the durable artifact, the loaded image is cache. Set IMG_TAR
+# to auto-reload when the store has been wiped.
+if ! podman image exists "$IMG" 2>/dev/null; then
+  if [ -n "${IMG_TAR:-}" ] && [ -f "$IMG_TAR" ]; then
+    echo "image $IMG missing from store — reloading from $IMG_TAR"
+    podman load -i "$IMG_TAR"
+  else
+    echo "image $IMG not in the store and no IMG_TAR set — load it first:"
+    echo "  podman load -i /shared/users/<you>/<image>.tar"
+    exit 1
+  fi
+fi
+
 if [ "$TARGET" = gross ]; then
   DRIVER=experiments/methods/splitting_gross_idle.py
   LOGDIR=runs/splitting_gross
