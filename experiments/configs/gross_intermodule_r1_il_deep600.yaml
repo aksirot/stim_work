@@ -33,7 +33,15 @@ relay_gamma_lo: -0.24
 relay_gamma_hi: 0.66
 relay_stop_nconv: 6
 
-weights_range: [1, 1674]
+# FULL both-sector DEM is MANDATORY here: K=23 mixes obs0 (X-type) with 22 memory
+# obs (Z-type), so a single-sector IS DEM would be blind to the sector that flips
+# the memory observables and silently undercount F_mem. (Default is single-sector.)
+mw_single_sector: false
+
+# interleaved mass ends near w~1100; the 1674 top is inherited from the serialized
+# model — the tail bins past ~1150 are saturated and cost deep600 time, but the
+# 3-zero-bin early stop only fires descending, so cap kept honest at 1200.
+weights_range: [1, 1200]
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4

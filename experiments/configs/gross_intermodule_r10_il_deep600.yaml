@@ -29,7 +29,11 @@ relay_gamma_lo: -0.24
 relay_gamma_hi: 0.66
 relay_stop_nconv: 6
 
-weights_range: [1, 1742]
+# FULL both-sector DEM mandatory (K=23 mixes X-type obs0 + Z-type memory obs);
+# single-sector would undercount F_mem. See the r1 sibling for the full note.
+mw_single_sector: false
+
+weights_range: [1, 1250]
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4
