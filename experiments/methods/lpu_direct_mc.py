@@ -37,10 +37,16 @@ DEEP600 = dict(gamma0=0.125, pre_iter=80, num_sets=600, set_max_iter=60,
 CFG_DIR = REPO_ROOT / "experiments" / "configs"
 ALL_OPS = [("inter_module_interleaved", "gross_intermodule_r1_il"),
            ("inter_module_legacy", "gross_intermodule_r1"),
+           # 2026-08-31 coupler-sensitivity study (interleaved idle + deep600):
+           ("im_r1_deep600", "gross_intermodule_r1_il_deep600"),      # symmetric couplers
+           ("im_r10_deep600", "gross_intermodule_r10_il_deep600"),    # 10x-worse Bell/coupler
            ("lpu_idle", "gross_lpu_idle"),
            ("automorphism", "gross_automorphism"),
            ("in_module_y1", "gross_lpu_y1")]
-OUT = REPO_ROOT / "runs" / "framework" / "bb144" / "lpu_direct_mc.json"
+# MC_OUT lets concurrent containers (e.g. the r1 and r10 coupler cells) write to
+# distinct files instead of racing the shared default.
+OUT = pathlib.Path(os.environ.get(
+    "MC_OUT", str(REPO_ROOT / "runs" / "framework" / "bb144" / "lpu_direct_mc.json")))
 
 ops_env = os.environ.get("MC_OPS", "all")
 OPS = ALL_OPS if ops_env == "all" else [o for o in ALL_OPS if o[0] in ops_env.split(",")]

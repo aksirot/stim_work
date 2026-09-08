@@ -1,0 +1,37 @@
+# Inter-module joint X̄₁(A)⊗X̄₁(B) measurement — 10x-WORSE couplers (p_coupler = 10*p_ref),
+# interleaved idle model, deep600 decoder. Sibling of gross_intermodule_r1_il_deep600.yaml;
+# ONLY p_coupler_factor differs (1 -> 10), so r1-vs-r10 isolates Bell-pair-fidelity
+# sensitivity with everything else held fixed. See the r1 file for full notes.
+label: gross_intermodule_r10_il_deep600
+outdir: runs/framework/bb144/inter_module_r10_il_deep600
+code_name: bb144
+experiment: inter_module
+decoder_name: relay
+techniques: [IS, I]
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+p_coupler_factor: 10
+lpu_C: 10
+lpu_d_init: 12
+lpu_idle_noise: true
+lpu_interleaved_idle_depth: 12
+lpu_include_memory_obs: false
+ansatz_model: f5
+pin_onset: false
+
+relay_gamma0: 0.125
+relay_pre_iter: 80
+relay_num_sets: 600
+relay_set_max_iter: 60
+relay_gamma_lo: -0.24
+relay_gamma_hi: 0.66
+relay_stop_nconv: 6
+
+weights_range: [1, 1742]
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 3000
+adaptive_stop_zero_bins: 3
