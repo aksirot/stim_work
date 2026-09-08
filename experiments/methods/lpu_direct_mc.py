@@ -76,28 +76,40 @@ def main():
                   f"(setup {time.time()-t0:.0f}s) — target {TARGET} fails, "
                   f"cap {SHOTS_MAX}", flush=True)
             sampler = circ.compile_detector_sampler(seed=2026)
-            fails = shots = decoded = 0
+            # obs 0 = measurement OUTPUT; obs 1.. = preserved MEMORY logicals
+            # (K=23 inter-module recipe). Split failures into out/mem/both — the
+            # paper's F/F_mem/F_out/F_both. For K=1 circuits F_mem stays 0.
+            K = int(circ.num_observables)
+            fails = f_out = f_mem = f_both = shots = decoded = 0
             t0 = time.time()
             while fails < TARGET and shots < SHOTS_MAX:
                 dets, obs = sampler.sample(BATCH, separate_observables=True)
                 nz = dets.any(axis=1)
-                fails += int(obs[~nz].any(axis=1).sum())
+                resid = obs.astype(bool).copy()          # empty-syndrome: pred=0
                 if nz.any():
                     pred = dec.decode_batch(dets[nz])
+                    resid[nz] = pred.astype(bool) != obs[nz].astype(bool)
                     decoded += int(nz.sum())
-                    fails += int((pred.astype(bool) != obs[nz].astype(bool))
-                                 .any(axis=1).sum())
+                out_bad = resid[:, 0]
+                mem_bad = resid[:, 1:].any(axis=1) if K > 1 else np.zeros(len(resid), bool)
+                any_bad = out_bad | mem_bad
+                fails += int(any_bad.sum())
+                f_out += int(out_bad.sum())
+                f_mem += int(mem_bad.sum())
+                f_both += int((out_bad & mem_bad).sum())
                 shots += BATCH
-                print(f"  [{key}] {fails} fails / {shots} shots "
+                print(f"  [{key}] {fails}F ({f_mem}m/{f_out}o/{f_both}b) / {shots} shots "
                       f"({decoded/(max(time.time()-t0, 1e-9)):.2f} dec/s)", flush=True)
             ler = fails / shots
             results[key] = dict(op=name, p=p, fails=fails, shots=shots, ler=ler,
+                                f_out=f_out, f_mem=f_mem, f_both=f_both,
+                                ler_out=f_out / shots, ler_mem=f_mem / shots,
                                 se_rel=(1/np.sqrt(fails) if fails else None),
-                                K=int(circ.num_observables), decoder=DECODER,
-                                elapsed_s=time.time() - t0)
+                                K=K, decoder=DECODER, elapsed_s=time.time() - t0)
             OUT.parent.mkdir(parents=True, exist_ok=True)
             OUT.write_text(json.dumps(results, indent=1), encoding="utf-8")
-            print(f"[{key}] LER = {fails}/{shots} = {ler:.3e}  -> saved", flush=True)
+            print(f"[{key}] LER={fails}/{shots}={ler:.3e}  out={f_out} mem={f_mem} "
+                  f"both={f_both}  -> saved", flush=True)
 
     print("\nsummary (per shot, per op's own K):")
     for k, r in sorted(results.items()):

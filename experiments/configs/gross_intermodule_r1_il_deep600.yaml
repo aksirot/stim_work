@@ -21,7 +21,7 @@ lpu_C: 10
 lpu_d_init: 12
 lpu_idle_noise: true
 lpu_interleaved_idle_depth: 12
-lpu_include_memory_obs: false
+lpu_include_memory_obs: true   # K=23: obs0 output + 22 memory (F_out/F_mem split)
 ansatz_model: f5
 pin_onset: false
 

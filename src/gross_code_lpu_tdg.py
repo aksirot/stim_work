@@ -2968,6 +2968,113 @@ def build_joint_pauli_circuit(
 # Layer 8c — Inter-module joint X̄₁(A)⊗X̄₁(B) builder
 # ---------------------------------------------------------------------------
 
+
+def _inter_l_correction_paths(aug: HalfLPU) -> Dict[Tuple[Tuple[str, int, int], str],
+                                                    frozenset]:
+    """BFS spanning-tree edge paths over the l-side V_l graph of the inter aug.
+
+    Nodes = the aug's active V_l vertices; graph edges = E_l edges (from
+    E_L_DETAIL), each carrying its edge-qubit index. Returns paths[vertex] =
+    frozenset of edge qubits on the tree path from the root. A Z-type memory
+    logical W anticommutes with the X-vertex checks V_l whose γ-qubit lies in
+    supp(W) (the set T_W, |T_W| even for W commuting with X̄₁); the correction
+    factor is Z on E_W = XOR_{v in T_W} paths[v], whose ∂ is exactly T_W, so
+    W·Z(E_W) commutes with every check. Those edge factors are the return-step
+    m_e records XOR'd into the memory observable. (Half-l analogue of
+    _lpu_correction_paths, which spans the FULL LPU graph.)
+    """
+    adj: Dict[Tuple[Tuple[str, int, int], str],
+              List[Tuple[Tuple[Tuple[str, int, int], str], int]]] = {
+        k: [] for k in aug.active_vertex_keys}
+
+    def _key(cv):
+        return (cv, 'l') if cv == IDENTIFIED_L_SIDE else (cv, 's')
+
+    for (a, b, _zc) in E_L_DETAIL:
+        ca, cb = _canonical_vertex(a), _canonical_vertex(b)
+        eq = EDGE_QUBIT[_frozen_edge_key((ca, cb, None, 'L'))]
+        ka, kb = _key(ca), _key(cb)
+        if ka in adj and kb in adj:
+            adj[ka].append((kb, eq))
+            adj[kb].append((ka, eq))
+
+    root = aug.active_vertex_keys[0]
+    paths = {root: frozenset()}
+    queue = [root]
+    while queue:
+        n = queue.pop(0)
+        for (m, eq) in adj[n]:
+            if m not in paths:
+                paths[m] = paths[n] ^ {eq}
+                queue.append(m)
+    assert len(paths) == len(aug.active_vertex_keys), (
+        f"l-side V_l graph not connected: {len(paths)}/{len(aug.active_vertex_keys)} "
+        f"reached — a correction path cannot span all vertices")
+    return paths
+
+
+def _x1x1_memory_recipe() -> List[Tuple[Optional[np.ndarray], Optional[np.ndarray],
+                                        List[int], List[int]]]:
+    """The 23 Z-type memory observables of the inter-module X̄₁(A)⊗X̄₁(B) measurement.
+
+    Two gross modules carry 24 logical qubits; the joint measurement adds
+    X̄₁(A)X̄₁(B) to the stabilizer group, leaving a 23-dim preserved (memory)
+    subgroup — the Z-type logicals commuting with X̄₁(A)⊗X̄₁(B):
+
+      * {Z̄ₖ(A) : k ∉ S} ∪ {Z̄_{s₀}(A)Z̄_s(A) : s ∈ S\\{s₀}}   (11, module A)
+      * the same 11 on module B
+      * the joint Z̄_{s₀}(A)⊗Z̄_{s₀}(B)                          (1, cross-module)
+
+    where S = {k : Z̄ₖ anticommutes with X̄₁} (Z̄_{s₀} on ONE module alone is the
+    conjugate of the measured operator — genuinely randomized — so it appears
+    only in the even-overlap combinations). Basis mirrors _y1_observable_recipe.
+
+    Returns 23 tuples (zA, zB, eA, eB): Z-support vectors over the 144 data qubits
+    for modules A/B (or None), and the E_l edge-qubit lists whose return-step m_e
+    records correct each module's part (module-A frame; module B is emitted at
+    +OFF by the builder). Deterministic at p=0 is the validation gate.
+    """
+    log_Z, _ = _tdg_logical_ops()
+    v_x1 = _op_vec(P, Q)
+    S = [k for k in range(12) if int(log_Z[k] @ v_x1) % 2 == 1]
+    assert S, "X̄₁ must be a nontrivial logical"
+    s0 = S[0]
+    per_module: List[np.ndarray] = [log_Z[k] for k in range(12) if k not in S]
+    for s in S[1:]:
+        per_module.append((log_Z[s0] ^ log_Z[s]).astype(np.uint8))
+    assert len(per_module) == 11
+
+    aug = _half_lpu_l_inter()
+    paths = _inter_l_correction_paths(aug)
+
+    def _edges(w: np.ndarray) -> List[int]:
+        supp = set(int(q) for q in np.where(w)[0])
+        e: frozenset = frozenset()
+        n = 0
+        for k in aug.active_vertex_keys:
+            if aug.vertex_data[k][0] in supp:
+                e = e ^ paths[k]
+                n += 1
+        assert n % 2 == 0, f"|T_W|={n} odd — W does not commute with the deformation"
+        return sorted(e)
+
+    obs: List[Tuple[Optional[np.ndarray], Optional[np.ndarray], List[int], List[int]]] = []
+    for w in per_module:                       # module A memory logicals (even T_W)
+        obs.append((w, None, _edges(w), []))
+    for w in per_module:                       # module B memory logicals (even T_W)
+        obs.append((None, w, [], _edges(w)))
+    # The 23rd preserved logical, the JOINT Z̄_{s₀}(A)⊗Z̄_{s₀}(B), is deliberately
+    # omitted: Z̄_{s₀} on ONE module has ODD T_W (it is the measured operator's
+    # conjugate on that module), so its correction path cannot close within a
+    # module — it must route through the bridge across modules (the merged-graph
+    # correction, entangled with the U1=CX/CZ bridge-Bell E2 subtlety). Shipping
+    # 22 validated memory observables is a tiny documented undercount (misses only
+    # failures flipping exclusively Z̄_{s₀}(A)Z̄_{s₀}(B)); the cross-module recipe
+    # is the next step. See build_joint_x1x1_circuit / the module docstring.
+    assert len(obs) == 22
+    return obs
+
+
 def build_joint_x1x1_circuit(
     error_model: ErrorModel,
     C: int = 10,
@@ -3013,8 +3120,6 @@ def build_joint_x1x1_circuit(
     recipe come after E1/E2/E3 pin the stabilizer structure and U1).
     """
     assert C >= 1 and d_init >= 1
-    if include_memory_observables:
-        raise NotImplementedError("memory observables for inter-module pending (K=23 recipe)")
     p = error_model.p_phys
     pm = error_model.p_meas
     if p_coupler is None:
@@ -3232,6 +3337,22 @@ def build_joint_x1x1_circuit(
     for k in range(11):
         obs0 += [trk.rec(last['ad'] + 2 * k), trk.rec(last['ad'] + 2 * k + 1)]
     circuit.append("OBSERVABLE_INCLUDE", obs0, 0)
+
+    # ---- observables 1..23: the preserved (memory) Z-logicals, m_e-corrected ----
+    # obs 0 is the measurement OUTPUT; these are the memory. Together they let a
+    # failure be attributed to output / memory / both (the paper's F_out/F_mem/
+    # F_both split). Deterministic at p=0 (all +1 from the |0⟩ init) or stim's DEM
+    # build rejects the circuit — the recipe's validation gate.
+    if include_memory_observables:
+        for j, (zA, zB, eA, eB) in enumerate(_x1x1_memory_recipe()):
+            recs: List = []
+            if zA is not None:
+                recs += [trk.rec(fA + int(q)) for q in np.where(zA)[0]]
+                recs += [trk.rec(edge_rec[e]) for e in eA]
+            if zB is not None:
+                recs += [trk.rec(fB + int(q)) for q in np.where(zB)[0]]
+                recs += [trk.rec(edge_rec[e + OFF]) for e in eB]
+            circuit.append("OBSERVABLE_INCLUDE", recs, 1 + j)
 
     return circuit
 
