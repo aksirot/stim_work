@@ -1,0 +1,42 @@
+# Inter-module joint X̄₁(A)⊗X̄₁(B), SYMMETRIC couplers — FAST LOCAL scan.
+# Identical to gross_intermodule_r1_il_deep600.yaml EXCEPT the decoder: campaign
+# relay (num_sets=20) instead of deep600. Reason (measured 2026-09-13): deep600 IS
+# on this circuit is ~43 DAYS locally (framework ETA; w~1180 decode ~160s). The
+# campaign relay is ~100x faster (~1-2s/decode) -> full spectrum in hours locally,
+# which answers the r1-vs-r10 coupler SENSITIVITY and the memory/output split shape.
+# Absolute LER is cheap-decoder-limited (~12x pessimistic vs deep600, per the A/B);
+# the deep600 anchor comes from the MC cells (im_r{1,10}_deep600) on fish. The
+# deep600 IS spectrum stays the fish job (gross_intermodule_r1_il_deep600.yaml).
+label: gross_intermodule_r1_il_fast
+outdir: runs/framework/bb144/inter_module_r1_il_fast
+code_name: bb144
+experiment: inter_module
+decoder_name: relay
+techniques: [IS, I]
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+p_coupler_factor: 1
+lpu_C: 10
+lpu_d_init: 12
+lpu_idle_noise: true
+lpu_interleaved_idle_depth: 12
+lpu_include_memory_obs: true   # K=23: obs0 output + 22 memory (F_out/F_mem split)
+
+relay_gamma0: 0.125
+relay_pre_iter: 80
+relay_num_sets: 20             # <-- campaign relay (deep600 is 600; fish-only locally)
+relay_set_max_iter: 60
+relay_gamma_lo: -0.24
+relay_gamma_hi: 0.66
+relay_stop_nconv: 5
+
+mw_single_sector: false        # K=23 mixes X-type obs0 + Z-type memory obs (full DEM)
+
+weights_range: [1, 1200]
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 3000
+adaptive_stop_zero_bins: 3
