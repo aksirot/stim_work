@@ -34,7 +34,7 @@ relay_stop_nconv: 5
 
 mw_single_sector: false        # K=23 mixes X-type obs0 + Z-type memory obs (full DEM)
 
-weights_range: [1, 1200]
+weights_range: [1, 450]   # capped: 1e-3 mass ~198; tail>450 irrelevant to LER(1e-3), skips ~24h of saturated bins
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4
