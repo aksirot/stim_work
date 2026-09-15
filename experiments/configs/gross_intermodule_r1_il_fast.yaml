@@ -38,5 +38,5 @@ weights_range: [1, 450]   # capped: 1e-3 mass ~198; tail>450 irrelevant to LER(1
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4
-adaptive_shots_max: 3000
+adaptive_shots_max: 300    # lowered 3000->300 (2026-09-15): caps only the low-f tail bins (high-f mass bins hit 20 fails well under 300); ~10x faster tail, negligible effect above ~w120
 adaptive_stop_zero_bins: 3
