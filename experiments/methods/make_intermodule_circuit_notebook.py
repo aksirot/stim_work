@@ -71,7 +71,13 @@ qubits and the V_l vertices they hang from. Then, like `schedule_svg`:
   the gates; set `with_noise=True` to see them),
 * **rails pruned** to qubits that take part in ≥1 two-qubit gate inside the slice
   (drops the reset/measure-only bystanders),
-* **rails renumbered 0..N** — the mapping back to real qubit indices is printed.""")
+* **rails renumbered 0..N** — the mapping back to real qubit indices (and each
+  qubit's role, from the layout constants) is printed.
+
+Caveat: a gate is drawn only if BOTH endpoints are in the slice, so the vertex
+checks' couplings to their own module's data/edge qubits are not shown — a vertex
+rail looks like it only touches the bridge edge. Raise `hops` to 3 to pull those in
+(at the cost of many more rails).""")
 
 code(r'''NOISE = {"DEPOLARIZE1","DEPOLARIZE2","X_ERROR","Z_ERROR","Y_ERROR",
          "PAULI_CHANNEL_1","PAULI_CHANNEL_2"}
@@ -125,12 +131,26 @@ def compact_timeline(circ, seeds, hops=2, with_noise=False):
                        inst.gate_args_copy())
     return str(out.diagram("timeline-svg")), {i: q for q, i in rail.items()}
 
-BASE = 2 * tdg.N_TOTAL_QUBITS                    # adapter ancillas start here
+OFF  = tdg.N_TOTAL_QUBITS                        # B-module frame offset (378)
+BASE = 2 * OFF                                   # adapter ancillas start here (756)
 bell0 = [BASE, BASE + 1]                         # bridge k=0: (anc_A, anc_B)
+
+def role(q):
+    """Qubit role from the tdg layout constants (per-module frame, then adapter)."""
+    if q >= BASE:
+        l = q - BASE
+        return "Bell-check anc" if l < 22 else "U_B cross-check anc"
+    m, l = ("A", q) if q < OFF else ("B", q - OFF)
+    if l < tdg.N_DATA:              return f"{m} data"
+    if l < tdg.EDGE_QUBIT_BASE:     return f"{m} gross check anc"
+    if l < tdg.VERTEX_QUBIT_BASE:   return f"{m} edge qubit (bridge)"
+    if l < tdg.CYCLE_QUBIT_BASE:    return f"{m} vertex check anc"
+    return f"{m} cycle check anc"
+
 svg, rails = compact_timeline(circ, bell0, hops=2)
-print(f"{len(rails)} rails.  rail -> real qubit:  " +
-      "  ".join(f"q{i}={q}" for i, q in rails.items()))
-print("  (A-module: <378   B-module: 378..755   adapter ancillas: 756..787)")
+print(f"{len(rails)} rails:")
+for i, q in rails.items():
+    print(f"  q{i} = qubit {q:3d}   {role(q)}")
 display(SVG(svg))''')
 
 md(r"""### The wide view (optional)
@@ -145,11 +165,17 @@ code(r'''# adapter_anc = range(circ.num_qubits - tdg.N_ADAPTER_ANC, circ.num_qub
 
 md(r"""## Spatial timeslice of one merged round
 
-The qubit layout with the gates active at a chosen TICK (spatial, not time-unrolled).
-Adjust the tick index to scan through the merge.""")
+The qubit layout with the gates active in a chosen TICK segment (spatial, not
+time-unrolled). `tick=k` is stim's k-th segment = row `k` of the per-round table above
+(tick=0 is everything before the first TICK). In this C=2/d_init=1 build the merged
+rounds are the two rows with the extra R/M/CX counts — segments 3 and 4; segment 5 is
+the bridge edge readout, 6–7 are trailing bare rounds. Change `tick` to scan.
 
-code(r'''# a TICK inside the first merged round (after the d_init=1 bare round + framing)
-display(SVG(str(circ.diagram("timeslice-svg", tick=6))))''')
+Rendered from `circ.without_noise()`: with noise the merged-round slice is a ~13 MB
+SVG (27k DEPOLARIZE1 boxes) that buries the gates and stalls the browser.""")
+
+code(r'''MERGED_TICK = 3      # first merged round (see per-round table: R=412, CX=2021)
+display(SVG(str(circ.without_noise().diagram("timeslice-svg", tick=MERGED_TICK))))''')
 
 md(r"""## The DEM these pull from
 
