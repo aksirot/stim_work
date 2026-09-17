@@ -62,46 +62,86 @@ for i, s in enumerate(rows):
     if sum(s.values()):
         print(f"{i:3d} " + " ".join(f"{s.get(k,0):>5}" for k in keys))''')
 
-md(r"""## Timeline-svg, sliced to the bridge / adapter neighbourhood
+md(r"""## Timeline-svg, sliced to ONE bridge coupling (compact, like schedule_svg's star)
 
-The inter-module coupling. Seed = the adapter ancilla qubits (the top `N_ADAPTER_ANC`
-indices — the bridge Bell + U_B cross-check ancillas); we grow one hop along two-qubit
-gates to pull in the bridge qubits and the V_l vertices they hang from, in BOTH
-modules, then keep only gates fully inside that set. Rails are the real qubit indices
-(A-module low, B-module ≈ +OFF, adapter ancillas highest).""")
+The inter-module link, readably. Seed = the two adapter ancillas of bridge k=0 (the
+first Bell-check pair), grown `hops` along two-qubit gates to pull in the A/B bridge
+qubits and the V_l vertices they hang from. Then, like `schedule_svg`:
+* **noise stripped** (structural view — the per-layer DEPOLARIZE1 boxes otherwise bury
+  the gates; set `with_noise=True` to see them),
+* **rails pruned** to qubits that take part in ≥1 two-qubit gate inside the slice
+  (drops the reset/measure-only bystanders),
+* **rails renumbered 0..N** — the mapping back to real qubit indices is printed.""")
 
-code(r'''def neighbourhood(circ, seeds, hops=1):
+code(r'''NOISE = {"DEPOLARIZE1","DEPOLARIZE2","X_ERROR","Z_ERROR","Y_ERROR",
+         "PAULI_CHANNEL_1","PAULI_CHANNEL_2"}
+TWOQ = {"CX","CZ","CY"}
+
+def neighbourhood(circ, seeds, hops=1):
     """Qubits reachable from `seeds` via <=hops two-qubit gates."""
     S = set(seeds)
     for _ in range(hops):
         add = set()
         for inst in circ.flattened():
-            if inst.name in ("CX","CZ","CY"):
+            if inst.name in TWOQ:
                 t = [x.value for x in inst.targets_copy()]
                 for a, b in zip(t[::2], t[1::2]):
                     if a in S or b in S: add.update((a, b))
         S |= add
     return S
 
-def slice_to(circ, keep):
-    """Sub-circuit of gates whose every qubit target is in `keep` (no detectors)."""
+def compact_timeline(circ, seeds, hops=2, with_noise=False):
+    """Readable timeline-svg of the gate structure on a small qubit set.
+    Returns (svg_text, rail_map) with rail_map[new] = real qubit index."""
+    keep = neighbourhood(circ, seeds, hops)
+    # prune to qubits that participate in a 2q gate fully inside the slice
+    active = set()
+    for inst in circ.flattened():
+        if inst.name in TWOQ:
+            t = [x.value for x in inst.targets_copy()]
+            for a, b in zip(t[::2], t[1::2]):
+                if a in keep and b in keep: active.update((a, b))
+    keep = active
+    rail = {q: i for i, q in enumerate(sorted(keep))}
     out = stim.Circuit()
     for inst in circ.flattened():
         if inst.name in ("DETECTOR","OBSERVABLE_INCLUDE","SHIFT_COORDS","QUBIT_COORDS"):
             continue
         if inst.name == "TICK":
             out.append("TICK"); continue
+        if not with_noise and inst.name in NOISE:
+            continue
         tg = inst.targets_copy()
-        qs = [t.value for t in tg if t.is_qubit_target]
-        if qs and all(q in keep for q in qs):
-            out.append(inst.name, tg, inst.gate_args_copy())
-    return out
+        if not all(t.is_qubit_target for t in tg):
+            continue
+        # stim merges same-name gates into ONE instruction with many targets
+        # (e.g. one CX with 1728 pairs) — split per gate before filtering
+        qs = [t.value for t in tg]
+        k = 2 if inst.name in TWOQ | {"DEPOLARIZE2","PAULI_CHANNEL_2","SWAP"} else 1
+        sel = [g for g in (qs[i:i+k] for i in range(0, len(qs), k))
+               if all(q in keep for q in g)]
+        if sel:
+            out.append(inst.name, [rail[q] for g in sel for q in g],
+                       inst.gate_args_copy())
+    return str(out.diagram("timeline-svg")), {i: q for q, i in rail.items()}
 
-adapter_anc = range(circ.num_qubits - tdg.N_ADAPTER_ANC, circ.num_qubits)
-keep = neighbourhood(circ, adapter_anc, hops=1)
-print(f"slice: {len(keep)} qubits (of {circ.num_qubits}): {sorted(keep)}")
-sub = slice_to(circ, keep)
-display(SVG(str(sub.diagram("timeline-svg"))))''')
+BASE = 2 * tdg.N_TOTAL_QUBITS                    # adapter ancillas start here
+bell0 = [BASE, BASE + 1]                         # bridge k=0: (anc_A, anc_B)
+svg, rails = compact_timeline(circ, bell0, hops=2)
+print(f"{len(rails)} rails.  rail -> real qubit:  " +
+      "  ".join(f"q{i}={q}" for i, q in rails.items()))
+print("  (A-module: <378   B-module: 378..755   adapter ancillas: 756..787)")
+display(SVG(svg))''')
+
+md(r"""### The wide view (optional)
+
+All 32 adapter ancillas + 1 hop — every bridge coupling at once (~70 rails). Busy by
+construction; useful only to confirm the 11 bridges + 10 U_B cross-checks are all
+wired the same way. Uncomment to render.""")
+
+code(r'''# adapter_anc = range(circ.num_qubits - tdg.N_ADAPTER_ANC, circ.num_qubits)
+# svg_w, rails_w = compact_timeline(circ, adapter_anc, hops=1)
+# print(f"{len(rails_w)} rails"); display(SVG(svg_w))''')
 
 md(r"""## Spatial timeslice of one merged round
 
