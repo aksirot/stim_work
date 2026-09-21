@@ -6,8 +6,9 @@ renders gracefully (jobs finish at different times):
   * MC cells          mc_r1.json, mc_r10.json, lpu_direct_mc.json, mc_dinit.json
 Sections: MC memory/output split; coupler sensitivity r10/r1; IS spectra + reweighted
 curves with MC anchors; coverage table (what is measured vs extrapolated); f5 ansatz
-extrapolation to the 1e-4 regime with a bootstrap band and the decoder-floor bracket;
-the d_init sweep (merge vs idle attribution).
+extrapolation to the 1e-4 regime with the paper's PINNED onset w0=ceil(d_circ/2)=5
+(Tour de Gross Table 4: inter-module gross d_circ<=10), a bootstrap band, the free-w0
+fit as a reference and the decoder-floor bracket; the d_init sweep (merge vs idle).
 
 Self-contained code cells; needs numpy/scipy/matplotlib + the repo's src/ (stim is
 imported transitively — run in the qec env or the container). Regenerate structure
@@ -60,6 +61,7 @@ code(r'''import json, pathlib, sys
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import binom
+from scipy.special import gammaln
 from repo_paths import REPO_ROOT
 sys.path.insert(0, str(REPO_ROOT / "src"))
 from importance_sampling import (FailureSpectrum, reweight_spectrum,
@@ -240,42 +242,45 @@ for p in P_TAB:
     print(line + f"   {v}")
 print(f"\nlowest p with the mass sampled in every run: {P_RELIABLE}")''')
 
-md(r"""## Ansatz extrapolation toward the 1e-4 regime — and why to distrust it here
+md(r"""## Ansatz extrapolation toward the 1e-4 regime — paper convention, onset pinned
 
-The paper's f5 ansatz (arXiv:2511.15177 Eq. 10: onset w0, f0, power-law ramp γ₁→γ₂
-with crossover wc, saturating at 1−2⁻ᴷ) is fitted to the sampled bins with ≥1 failure
-and pushed through the binomial sum to p=1e-4. Bands are a parametric bootstrap:
-resample each bin's failures ~Binom(T, f̂), refit warm-started from the point fit,
-16–84 %. **Limitation of the band:** zero-failure bins stay zero under this
-resampling, so the onset edge is frozen and the band *understates* the w0 uncertainty.
+The paper's f5 ansatz (arXiv:2511.15177 Eq. 10: onset w0, f0=f(w0), power-law ramp
+γ₁→γ₂ with crossover wc, saturating at 1−2⁻ᴷ) is fitted to the sampled bins with ≥1
+failure and pushed through the binomial sum to p=1e-4.
 
-**Why the 1e-4 number is not credible for these spectra:**
-1. At p=1e-4 the binomial mass sits at μ≈20 faults, while the fitted onsets are
-   w0≈48–54. LER(1e-4) is then a pure product of a far binomial tail and f0 — it is
-   ~1e-12, and it is 100 % ansatz.
-2. The fitted w0 is a **detection limit** (where f drops below 1/300 at 300 shots),
-   not the physical minimum failing weight. The family assumes f≡0 below w0.
-3. The campaign relay is known to **miscorrect at low weight**: on the validated Y1
-   circuit it failed at w=3–6 at ~1/400 each. If f(w) below the frontier is a flat
-   decoder floor f_floor instead of zero, then LER(p) → f_floor·P(W ≥ w_min) ≈ f_floor
-   at low p. The dotted horizontal lines are the 95 % bound on such a floor from the
-   pooled zero-failure bins at the frontier (0/900 → 3.3e-3).
+**The onset is pinned, as in Tour de Gross.** Table 4 of arXiv:2506.03094 gives the
+gross-code inter-module measurement a circuit distance **d_circ ≤ 10** (the deformed
+code's distance is limited to d−1 = 11 bridge qubits; in-module is also ≤ 10), and
+their ansatz "vanishes for w < w0 = ⌈d_circ/2⌉", i.e. **w0 = 5**. A *free* w0 fitted to
+these spectra lands at 48–54, which is the 300-shot *detection limit* (f < 1/300),
+not a physical onset — so the free fit is shown only as a faint reference, to make
+the difference visible. Our own Technique-II probes of this circuit were inconclusive
+(time-like boundary artifacts), so ≤10 is the paper's bound; a true d_circ of 8–9
+would move the pin to 4–5.
 
-So the truth at 1e-4 lies somewhere between the dashed ansatz curve (~1e-12) and the
-dotted floor bound (~3e-3); this spectrum cannot tell. **What would:** direct
-low-weight bins. Resolving a 1e-3 floor needs ~3000 shots per bin at ~5 s/decode, so a
-4-weight probe (w = 10, 20, 30, 40) is ~12 h locally; a full w=5..45 fill is a fish
-job; the deep600 decoder removes the floor but is ~100× slower per shot.
+**What pinning does with *these* data.** Every sampled bin is at w ≥ 50, so f0 = f(5)
+and the whole ramp from w=5 to 50 are the power law extrapolated downward from the
+measured w ≥ 53 shape — assumed, not measured (the paper had bins near its onset).
+The bootstrap band (resample each bin's failures ~Binom(T, f̂), refit warm-started,
+16–84 %) is therefore only the *statistical* part; the systematic question — is the
+w≥53 power law the right shape down to w=5 — is not in the band. The printed
+f_pinned(w) at w = 10, 20, 30, 40 is what a future low-weight probe should be compared
+against.
 
-**Expect the extrapolated r10/r1 to invert.** Independently fitted (w0, f0, shape)
-differences amplify exponentially under extrapolation (the `reweight_spectrum`
-docstring's warning); r10's fitted w0 is higher than r1's, so its ansatz curve drops
-*below* r1's at low p. That is a fit artifact, not physics — the measured ratio
-(solid, ≥4e-4) is the number to quote.""")
+**The pessimistic bracket stays.** The campaign relay is known to miscorrect at low
+weight (Y1: w=3–6 at ~1/400 each). If f(w) below the frontier is a flat decoder floor
+rather than the ramp, LER(p) → f_floor·P(W ≥ w_min) ≈ f_floor at low p; the dotted
+horizontal lines are the 95 % bound on such a floor from the pooled zero-failure bins
+at the frontier (0/900 → 3.3e-3). **What would settle it:** direct low-weight bins —
+resolving a 1e-3 floor needs ~3000 shots per bin at ~5 s/decode, so a 4-weight probe
+(w = 10, 20, 30, 40) is ~12 h locally; a full w=5..45 fill is a fish job; deep600
+removes the floor but is ~2× slower per shot here.
 
-code(r'''from scipy.special import gammaln
+**Ratios under extrapolation.** Independently fitted shapes amplify differences
+exponentially at low p (the `reweight_spectrum` docstring's warning), so read the
+extrapolated r10/r1 with its band and prefer the measured ratio (solid, ≥4e-4).""")
 
-def ler_ansatz(fit, p):
+code(r'''def ler_ansatz(fit, p):
     """LER(p) = sum_w Binom(w; N, q(p)) f_ansatz(w) — same as the library's
     logical_error_rate_from_ansatz but with the weight sum truncated where the binomial
     mass ends (w <= mu + 12 sigma). The library sums to N_expanded = 2.9e6 rows and
@@ -288,17 +293,22 @@ def ler_ansatz(fit, p):
     logt = logb[:, None] + w[:, None] * np.log(q)[None, :] + (N - w)[:, None] * np.log1p(-q)[None, :]
     return (fit.f(w)[:, None] * np.exp(logt)).sum(axis=0)
 
-K_OBS = 23
-N_BOOT = 100          # warm-started f5 refits per run (each ~0.05 s + one LER curve)
+K_OBS  = 23
+D_CIRC = 10                       # Tour de Gross Table 4: inter-module gross d_circ <= 10
+W0_PIN = float(np.ceil(D_CIRC / 2))   # = 5, the paper's ansatz onset
+N_BOOT = 100                      # warm-started f5 refits per run (each ~0.05 s + one LER curve)
 rng = np.random.default_rng(7)
 ANS = {}
 for tag, s in RUNS.items():
-    # warm-start from the framework's own fit when present (skips the 36-start grid;
-    # same basin) — the multistart runs only if it's absent
+    raw = s["raw"]
+    # PRIMARY: onset pinned at w0 = ceil(d_circ/2) (multistart; nothing to warm-start from)
+    fit = fit_failure_spectrum(raw, K_OBS, model="f5", w0=W0_PIN, f0=None)
+    P_fit = ler_ansatz(fit, pg)
+    # REFERENCE: free w0 (warm-started from the framework's own fit when present)
     fj = BB / s["sub"] / "ansatz_fit.json"
     fw = json.loads(fj.read_text(encoding="utf-8"))["params"] if fj.exists() else None
-    fit = fit_failure_spectrum(s["raw"], K_OBS, model="f5", init_params=fw)
-    P_fit = ler_ansatz(fit, pg)
+    fit_free = fit_failure_spectrum(raw, K_OBS, model="f5", init_params=fw)
+    P_free = ler_ansatz(fit_free, pg)
     if tag == "r1":   # one-time check of the truncated sum against the library, at p=1e-3
         lib = float(logical_error_rate_from_ansatz(fit, [1e-3])[0]); mine = float(ler_ansatz(fit, [1e-3])[0])
         print(f"truncated-sum check at 1e-3: library {lib:.4e}  here {mine:.4e}  (rel diff {abs(lib-mine)/lib:.1e})")
@@ -309,9 +319,8 @@ for tag, s in RUNS.items():
         try:
             bfit = fit_failure_spectrum(
                 FailureSpectrum(weights=s["ws"], trials=list(tr), failures=list(fb),
-                                n_expanded=s["raw"].n_expanded, q_base=s["raw"].q_base,
-                                p_ref=s["raw"].p_ref),
-                K_OBS, model="f5", init_params=fit.params)
+                                n_expanded=raw.n_expanded, q_base=raw.q_base, p_ref=raw.p_ref),
+                K_OBS, model="f5", w0=W0_PIN, f0=None, init_params=fit.params)
             boots.append(ler_ansatz(bfit, pg))
         except (ValueError, RuntimeError):
             pass
@@ -319,18 +328,21 @@ for tag, s in RUNS.items():
     # decoder-floor bracket: 95% bound on a flat f below the frontier from the pooled
     # zero-failure bins at the frontier (the three stop-rule bins)
     T0 = sum(t for w, t, f in zip(s["ws"], s["tr"], s["fa"]) if f == 0 and w < s["ws"][0] + 5)
-    ANS[tag] = dict(fit=fit, P=P_fit, boots=boots,
+    ANS[tag] = dict(fit=fit, P=P_fit, boots=boots, fit_free=fit_free, P_free=P_free,
                     lo=(np.percentile(boots, 16, axis=0) if len(boots) else None),
                     hi=(np.percentile(boots, 84, axis=0) if len(boots) else None),
                     f_floor95=(3.0 / T0 if T0 else float("nan")))
-    pp = fit.params
-    print(f"{s['label']} [{s['dec']}]: f5  w0={pp['w0']:.1f}  f0={pp['f0']:.2e}  "
-          f"gamma1={pp['gamma1']:.2f}  gamma2={pp['gamma2']:.2f}  wc={pp['wc']:.0f}   "
-          f"(n={fit.n_points}, cost={fit.cost:.0f}, {len(boots)}/{N_BOOT} boots converged)")
-    if fw:
-        print(f"   framework's fit:  w0={fw['w0']:.1f}  f0={fw['f0']:.2e}  gamma1={fw['gamma1']:.2f}  "
-              f"gamma2={fw['gamma2']:.2f}  wc={fw['wc']:.0f}   (used as warm start)")
-    print(f"   frontier w={s['ws'][0]}; flat-floor 95% bound below it: f <= {ANS[tag]['f_floor95']:.1e}")''')
+    pp, pf = fit.params, fit_free.params
+    print(f"\n{s['label']} [{s['dec']}]")
+    print(f"   PINNED w0={pp['w0']:.0f}:  f0=f({pp['w0']:.0f})={pp['f0']:.2e}  gamma1={pp['gamma1']:.2f}  "
+          f"gamma2={pp['gamma2']:.2f}  wc={pp['wc']:.0f}   (n={fit.n_points}, cost={fit.cost:.0f}, "
+          f"{len(boots)}/{N_BOOT} boots converged)")
+    print(f"   free w0 (ref):  w0={pf['w0']:.1f}  f0={pf['f0']:.2e}  gamma1={pf['gamma1']:.2f}  "
+          f"gamma2={pf['gamma2']:.2f}  wc={pf['wc']:.0f}   (cost={fit_free.cost:.0f})")
+    wprobe = np.array([10, 20, 30, 40, s["ws"][0]], float)
+    print("   pinned f(w) below the frontier: " +
+          "  ".join(f"f({int(w)})={v:.1e}" for w, v in zip(wprobe, fit.f(wprobe))) +
+          f"   | flat-floor 95% bound: f <= {ANS[tag]['f_floor95']:.1e}")''')
 
 code(r'''fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
 reliable = np.ones_like(pg, bool)
@@ -339,16 +351,19 @@ for tag, s in RUNS.items():
     rw = reweight_spectrum(s["spec"], pg)
     _, below = mass_below(s, pg); ok = below < 0.01; reliable &= ok
     axL.plot(pg[ok], rw.P_logical[ok], "-", color=col, lw=2.2, label=f"{s['label']} measured")
-    axL.plot(pg, a["P"], "--", color=col, lw=1.4, label=f"{s['label']} f5 ansatz")
+    axL.plot(pg, a["P"], "--", color=col, lw=1.6, label=f"{s['label']} f5, w0 pinned = {W0_PIN:.0f}")
     if a["lo"] is not None:
         axL.fill_between(pg, np.maximum(a["lo"], 1e-16), a["hi"], color=col, alpha=0.15)
+    axL.plot(pg, a["P_free"], "-.", color=col, lw=0.9, alpha=0.5, label=f"{s['label']} f5, free w0 (ref)")
     axL.axhline(a["f_floor95"], color=col, ls=":", lw=1.2)
 if reliable.any():
     axL.axvspan(pg[0], pg[reliable].min(), color="grey", alpha=0.10)
     axL.text(pg[0]*1.1, 3e-2, "ansatz only\n(mass below\nsampled frontier)", fontsize=8, color="0.3")
 axL.set_xscale("log"); axL.set_yscale("log"); axL.set_ylim(1e-14, 1.5)
 axL.set_xlabel("physical error rate p"); axL.set_ylabel("LER (per shot)")
-axL.set_title("measured reweight (solid) vs f5 extrapolation (dashed, 16–84% band)\ndotted: 95% bound if f is a flat decoder floor below the frontier")
+axL.set_title(f"measured reweight (solid) vs f5 extrapolation, w0 pinned at {W0_PIN:.0f} (dashed, 16–84% band)\n"
+              "dash-dot: free-w0 fit (detection-limit onset); dotted: 95% bound if f is a flat floor below the frontier",
+              fontsize=9)
 axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=7, loc="lower right")
 
 if {"r1", "r10"} <= set(RUNS):
@@ -356,8 +371,10 @@ if {"r1", "r10"} <= set(RUNS):
     with np.errstate(divide="ignore", invalid="ignore"):
         meas = r10.P_logical / r1.P_logical
         ans = ANS["r10"]["P"] / ANS["r1"]["P"]
+        ans_free = ANS["r10"]["P_free"] / ANS["r1"]["P_free"]
     axR.plot(pg[reliable], meas[reliable], "-", color="k", lw=2.2, label="measured (both spectra cover the mass)")
-    axR.plot(pg, ans, "--", color="C3", lw=1.4, label="f5 ansatz ratio (fit artifact where it inverts)")
+    axR.plot(pg, ans, "--", color="C3", lw=1.6, label=f"f5 ratio, w0 pinned = {W0_PIN:.0f}")
+    axR.plot(pg, ans_free, "-.", color="C3", lw=0.9, alpha=0.5, label="f5 ratio, free w0 (ref; inverts = fit artifact)")
     b1, b10 = ANS["r1"]["boots"], ANS["r10"]["boots"]
     n = min(len(b1), len(b10))
     if n > 10:
@@ -373,22 +390,22 @@ if {"r1", "r10"} <= set(RUNS):
 plt.tight_layout(); plt.show()
 
 # the numbers
-print(f"{'p':>7} " + " ".join(f"{'LER '+t+' meas':>14} {'LER '+t+' f5':>12}" for t in RUNS) +
-      f" {'ratio meas':>10} {'ratio f5':>9}  status")
+print(f"{'p':>7} " + " ".join(f"{'LER '+t+' meas':>14} {'f5 pin':>10} {'f5 free':>10}" for t in RUNS) +
+      f" {'ratio meas':>10} {'ratio pin':>9}  status")
 for p in P_TAB:
     line = f"{p:7.1e} "
     vals = {}
     for tag, s in RUNS.items():
         mu, bel = mass_below(s, p)
         m = float(reweight_spectrum(s["spec"], [p]).P_logical[0])
-        a = float(ler_ansatz(ANS[tag]["fit"], [p])[0])
+        a = float(ler_ansatz(ANS[tag]["fit"], [p])[0]); af = float(ler_ansatz(ANS[tag]["fit_free"], [p])[0])
         vals[tag] = (m, a, float(bel))
-        line += f" {(f'{m:.3e}' if bel < 0.01 else '   (not covered)'):>14} {a:12.3e}"
+        line += f" {(f'{m:.3e}' if bel < 0.01 else '   (not covered)'):>14} {a:10.2e} {af:10.2e}"
     if {"r1", "r10"} <= set(vals):
         m1, a1, b1_ = vals["r1"]; m10, a10, b10_ = vals["r10"]
         cov = max(b1_, b10_) < 0.01
         line += f" {(f'{m10/m1:.2f}' if cov and m1 else '—'):>10} {(a10/a1 if a1 else float('nan')):9.2f}"
-        line += "  measured" if cov else "  EXTRAPOLATED — do not quote"
+        line += "  measured" if cov else "  extrapolated (pinned-onset ansatz)"
     print(line)''')
 
 md(r"""## The d_init sweep: merge cost vs idle cost
@@ -478,9 +495,11 @@ md(r"""## Reading it
 * **Squares/diamonds on the reweight panel are MC totals**; a diamond off its
   campaign curve means the IS-vs-MC cross-check failed (suspect the DEM sector or the
   reweight) — they should agree within errors.
-* **The ansatz section is a bracket, not a number**: at 1e-4 the answer lies between
-  the f5 extrapolation and the flat-floor bound, orders of magnitude apart. Quote the
-  measured window (≥4e-4) and say the low-p regime needs low-weight bins.
+* **The extrapolation uses the paper's pinned onset w0 = ⌈d_circ/2⌉ = 5.** Its band
+  is statistical only: the ramp from w=5 to the w=50 frontier is the measured power
+  law extrapolated, and the flat-floor bound is the pessimistic alternative. Quote the
+  measured window (≥4e-4) as fact and the pinned extrapolation as the paper-convention
+  estimate; low-weight bins would close the gap.
 * **The d_init sweep's intercept is an upper bound on the merge cost** (context
   confound) until a third padding value confirms linearity.
 * **Caveats** (from the top cell): 22/23 memory logicals; F_mem is Z-basis-visible
