@@ -40,6 +40,12 @@ ALL_OPS = [("inter_module_interleaved", "gross_intermodule_r1_il"),
            # 2026-08-31 coupler-sensitivity study (interleaved idle + deep600):
            ("im_r1_deep600", "gross_intermodule_r1_il_deep600"),      # symmetric couplers
            ("im_r10_deep600", "gross_intermodule_r10_il_deep600"),    # 10x-worse Bell/coupler
+           # 2026-09-21 d_init sweep (merge vs idle attribution), campaign decoder
+           # (MC_DECODER=campaign -> make_decoder(cfg) = the yaml's relay_num_sets=20):
+           ("im_r1_fast", "gross_intermodule_r1_il_fast"),            # d_init=12 (MC cross-check of the IS)
+           ("im_r10_fast", "gross_intermodule_r10_il_fast"),
+           ("im_r1_fast_d6", "gross_intermodule_r1_il_fast_d6"),      # d_init=6: half the idle padding
+           ("im_r10_fast_d6", "gross_intermodule_r10_il_fast_d6"),
            ("lpu_idle", "gross_lpu_idle"),
            ("automorphism", "gross_automorphism"),
            ("in_module_y1", "gross_lpu_y1")]
@@ -105,7 +111,12 @@ def main():
                                 f_out=f_out, f_mem=f_mem, f_both=f_both,
                                 ler_out=f_out / shots, ler_mem=f_mem / shots,
                                 se_rel=(1/np.sqrt(fails) if fails else None),
-                                K=K, decoder=DECODER, elapsed_s=time.time() - t0)
+                                K=K, decoder=DECODER, elapsed_s=time.time() - t0,
+                                # circuit-shape tags for the d_init-sweep notebook cell
+                                d_init=cfg.lpu_d_init, C=cfg.lpu_C,
+                                coupler_factor=cfg.p_coupler_factor,
+                                relay_num_sets=(None if DECODER == "deep600"
+                                                else cfg.relay_num_sets))
             OUT.parent.mkdir(parents=True, exist_ok=True)
             OUT.write_text(json.dumps(results, indent=1), encoding="utf-8")
             print(f"[{key}] LER={fails}/{shots}={ler:.3e}  out={f_out} mem={f_mem} "

@@ -1,12 +1,17 @@
-"""Generate intermodule_coupler_split.ipynb — the memory/output split study.
+"""Generate intermodule_coupler_split.ipynb — the memory/output split + coupler study.
 
-Reads the four-cell run outputs (2026-08-31 study): MC cells with the K=23
-output/memory failure split, and IS total spectra, for symmetric (r1) vs
-10x-worse-coupler (r10) inter-module X̄₁(A)⊗X̄₁(B) measurement, deep600 decoder,
-interleaved idle. Renders whatever is present (jobs finish at different times) —
-run it after any rsync of runs/framework/bb144/. Self-contained code cells; needs
-numpy/scipy/matplotlib (+ stim only via importance_sampling import — present in the
-container). Regenerate structure here; edit and re-execute the notebook for data.
+Reads whatever inter-module run outputs are present under runs/framework/bb144/ and
+renders gracefully (jobs finish at different times):
+  * IS total spectra  inter_module_r{1,10}_il_{deep600,fast}/  (complete = result.npz)
+  * MC cells          mc_r1.json, mc_r10.json, lpu_direct_mc.json, mc_dinit.json
+Sections: MC memory/output split; coupler sensitivity r10/r1; IS spectra + reweighted
+curves with MC anchors; coverage table (what is measured vs extrapolated); f5 ansatz
+extrapolation to the 1e-4 regime with a bootstrap band and the decoder-floor bracket;
+the d_init sweep (merge vs idle attribution).
+
+Self-contained code cells; needs numpy/scipy/matplotlib + the repo's src/ (stim is
+imported transitively — run in the qec env or the container). Regenerate structure
+here; edit and re-execute the notebook for data.
 """
 import json
 from repo_paths import REPO_ROOT
@@ -20,7 +25,13 @@ md(r"""# Inter-module joint measurement: memory vs output failures, coupler sens
 
 **The circuit.** The gross-to-gross inter-module joint measurement of X̄₁(A)⊗X̄₁(B)
 (experiment `inter_module` — NOT the in-module `joint_pauli` Y1), interleaved idle
-model, **deep600** decoder (the validated best gross-code relay).
+model, C=10 merged rounds padded by d_init=12 bare rounds each side (34 noisy rounds).
+
+**Decoders — read the labels.** Two relay configurations appear: the **campaign relay
+(num_sets=20)** — the fast local decoder behind the IS spectra and the d_init sweep —
+and **deep600** (num_sets=600, the validated paper-grade config, ~12× fewer failures
+than the campaign relay on this code) behind the fish MC cells. Absolute LERs differ
+between them; *ratios within one decoder* (r10/r1, d6/d12) are the robust quantities.
 
 **The split (K=23).** obs 0 is the measurement **output** (joint parity); obs 1..22
 are **memory** — the preserved Z-logicals commuting with the measured operator,
@@ -41,21 +52,25 @@ fidelity 10× worse (p_coupler = 10·p). Everything else identical, so r1-vs-r10
 isolates Bell-pair-fidelity sensitivity — and the split says whether bad couplers
 threaten the **output** parity, the **stored memory**, or both.
 
-**IS + MC.** MC cells give the split directly at p=1e-3 (3000 shots). IS cells give
+**IS + MC.** MC cells give the split directly at a few p (≤3000 shots). IS cells give
 the total failure spectrum f(w) (full both-sector DEM), reweightable to a curve and
 cross-checked against the MC totals.""")
 
-code(r'''import json, pathlib
+code(r'''import json, pathlib, sys
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import binom
 from repo_paths import REPO_ROOT
+sys.path.insert(0, str(REPO_ROOT / "src"))
+from importance_sampling import (FailureSpectrum, reweight_spectrum,
+                                 fit_failure_spectrum, logical_error_rate_from_ansatz)
 
 BB = REPO_ROOT / "runs" / "framework" / "bb144"
 
 def load_mc():
-    """Merge the per-cell MC json files (mc_r1.json, mc_r10.json)."""
+    """Merge the per-cell MC json files."""
     out = {}
-    for f in ("mc_r1.json", "mc_r10.json", "lpu_direct_mc.json"):
+    for f in ("mc_r1.json", "mc_r10.json", "lpu_direct_mc.json", "mc_dinit.json"):
         p = BB / f
         if p.exists():
             out.update(json.loads(p.read_text(encoding="utf-8")))
@@ -64,37 +79,47 @@ def load_mc():
 MC = load_mc()
 print(f"MC cells present: {sorted(MC)}" if MC else "no MC results yet")''')
 
-md(r"""## The memory/output split (direct MC, p = 1e-3)
+md(r"""## The memory/output split (direct MC)
 
-Wilson-ish binomial errors on each rate. `F = F_out + F_mem − F_both`.""")
+Binomial errors on each rate. `F = F_out + F_mem − F_both`. One row per (model,
+decoder) at p = 1e-3; the deep600 rows are the fish cells, the campaign rows the local
+d_init=12 cross-check cells.""")
 
 code(r'''def se(k, n): return (np.sqrt(k)/n) if (k and n) else (0.0 if n else float("nan"))
-rows = [("symmetric (r1)", "im_r1_deep600@1e-03"),
-        ("10x coupler (r10)", "im_r10_deep600@1e-03")]
-print(f"{'model':18s} {'shots':>8} {'LER_total':>18} {'LER_out':>18} {'LER_mem':>18} {'both':>6}")
-mc_summary = {}
-for label, key in rows:
+rows = [("symmetric (r1)",   "deep600",  "im_r1_deep600@1e-03"),
+        ("10x coupler (r10)", "deep600",  "im_r10_deep600@1e-03"),
+        ("symmetric (r1)",   "campaign", "im_r1_fast@1e-03"),
+        ("10x coupler (r10)", "campaign", "im_r10_fast@1e-03")]
+print(f"{'model':18s} {'decoder':9s} {'shots':>6} {'LER_total':>18} {'LER_out':>18} {'LER_mem':>18} {'both':>5}")
+mc_summary = {}          # (label, decoder) -> dict
+for label, dec, key in rows:
     r = MC.get(key)
     if not r:
-        print(f"{label:18s}  (not finished)"); continue
+        print(f"{label:18s} {dec:9s}  (not finished)"); continue
     n = r["shots"]
     tot, out, mem = r["fails"]/n, r["f_out"]/n, r["f_mem"]/n
-    mc_summary[label] = dict(n=n, tot=tot, out=out, mem=mem,
-                             F=r["fails"], Fout=r["f_out"], Fmem=r["f_mem"], Fboth=r["f_both"])
-    print(f"{label:18s} {n:>8} "
+    mc_summary[(label, dec)] = dict(n=n, tot=tot, out=out, mem=mem,
+                                    F=r["fails"], Fout=r["f_out"], Fmem=r["f_mem"], Fboth=r["f_both"])
+    print(f"{label:18s} {dec:9s} {n:>6} "
           f"{tot:.3e}±{se(r['fails'],n):.1e}  "
           f"{out:.3e}±{se(r['f_out'],n):.1e}  "
-          f"{mem:.3e}±{se(r['f_mem'],n):.1e}  {r['f_both']:>6}")''')
+          f"{mem:.3e}±{se(r['f_mem'],n):.1e}  {r['f_both']:>5}")''')
 
 md(r"""## Coupler sensitivity: does 10× worse Bell fidelity hit output or memory?
 
 The ratio r10/r1 on each channel. If the couplers threaten the **output** parity
 (the measurement's job), the output ratio is large and the memory ratio ~1. If they
-corrupt **stored memory**, the reverse. This is the study's central question.""")
+corrupt **stored memory**, the reverse. This is the study's central question. Uses
+the deep600 pair when both are present, else the campaign pair.""")
 
-code(r'''a, b = mc_summary.get("symmetric (r1)"), mc_summary.get("10x coupler (r10)")
-if a and b:
+code(r'''pair = None
+for dec in ("deep600", "campaign"):
+    a, b = mc_summary.get(("symmetric (r1)", dec)), mc_summary.get(("10x coupler (r10)", dec))
+    if a and b: pair = (dec, a, b); break
+if pair:
+    dec, a, b = pair
     def ratio(x, y): return (y/x) if x else float("inf")
+    print(f"decoder: {dec}")
     print(f"{'channel':10s} {'r1':>12} {'r10':>12} {'r10/r1':>8}")
     for ch, k in (("total","tot"), ("output","out"), ("memory","mem")):
         print(f"{ch:10s} {a[k]:12.3e} {b[k]:12.3e} {ratio(a[k],b[k]):8.2f}")
@@ -103,77 +128,361 @@ if a and b:
     ax.bar(x-w/2, [a["tot"],a["out"],a["mem"]], w, label="symmetric (r1)")
     ax.bar(x+w/2, [b["tot"],b["out"],b["mem"]], w, label="10x coupler (r10)")
     ax.set_yscale("log"); ax.set_xticks(x); ax.set_xticklabels(["total","output","memory"])
-    ax.set_ylabel("LER at p=1e-3"); ax.set_title("coupler-fidelity sensitivity by channel")
+    ax.set_ylabel("LER at p=1e-3"); ax.set_title(f"coupler-fidelity sensitivity by channel ({dec})")
     ax.legend(); ax.grid(alpha=0.3, which="both", axis="y"); plt.tight_layout(); plt.show()
 else:
-    print("need both MC cells finished for the sensitivity comparison")''')
+    print("need an r1 + r10 MC pair (same decoder) at 1e-3 for the per-channel sensitivity")''')
 
 md(r"""## IS total failure spectra f(w), and reweighted LER vs the MC anchors
 
 The IS cells give the full spectrum (any-observable failure, full both-sector DEM).
-Reweighting gives LER(p); the filled MC-total points at 1e-3 are the cross-check
-(they should sit on the IS curves within errors — the whole reason both were run).
-NB the IS *total* is not yet split into output/memory (per-observable IS is a
-follow-on); the split lives in the MC section above.""")
+Reweighting the *measured* f(w) gives LER(p) with no ansatz. Anchors: filled squares =
+deep600 MC totals (only comparable to a deep600 spectrum), open diamonds = campaign
+MC totals (the d_init=12 cross-check cells; these should sit on the campaign IS
+curves within errors — the IS-vs-MC check). Run discovery prefers a *complete*
+deep600 spectrum (result.npz present) and falls back to the fast campaign one.""")
 
-code(r'''import sys
-sys.path.insert(0, str(REPO_ROOT / "src"))
-from importance_sampling import FailureSpectrum, reweight_spectrum
-
-def load_spec(sub):
+code(r'''def load_spec(sub):
+    """Sampled bins + two FailureSpectrum views: `spec` stride-fills the gaps between
+    sampled weights (so reweight covers the binomial mass), `raw` is the sampled bins
+    only (what the ansatz is fitted to — pooled fill-ins would double-count points)."""
     p = BB / sub / "spectrum.json"
     if not p.exists(): return None
     j = json.loads(p.read_text(encoding="utf-8"))
+    cfgp = BB / sub / "config.json"
+    cfg = json.loads(cfgp.read_text(encoding="utf-8")) if cfgp.exists() else {}
     tw, fw = j["trials_by_weight"], j["failures_by_weight"]
     ws = sorted(int(w) for w in tw)
     tr = [int(tw[str(w)]) for w in ws]; fa = [int(fw[str(w)]) for w in ws]
-    # stride-fill (pool gaps) so reweight covers the mass
+    meta = dict(n_expanded=int(j["n_expanded"]), q_base=float(j["q_base"]), p_ref=float(j["p_ref"]))
     wf, tf, ff = [], [], []
     for i,(w,t,f) in enumerate(zip(ws,tr,fa)):
         wf.append(w); tf.append(t); ff.append(f)
         if i+1 < len(ws):
             for wm in range(w+1, ws[i+1]):
                 wf.append(wm); tf.append(t+tr[i+1]); ff.append(f+fa[i+1])
-    spec = FailureSpectrum(weights=wf, trials=tf, failures=ff,
-                           n_expanded=int(j["n_expanded"]), q_base=float(j["q_base"]),
-                           p_ref=float(j["p_ref"]))
-    return ws, tr, fa, spec
+    return dict(ws=ws, tr=tr, fa=fa, cfg=cfg,
+                spec=FailureSpectrum(weights=wf, trials=tf, failures=ff, **meta),
+                raw=FailureSpectrum(weights=ws, trials=tr, failures=fa, **meta))
 
-CELLS = [("symmetric (r1)", "inter_module_r1_il_deep600", "C0"),
-         ("10x coupler (r10)", "inter_module_r10_il_deep600", "C1")]
+def pick_run(tag):
+    """Prefer a COMPLETE deep600 spectrum (result.npz written), else the fast one."""
+    for sub in (f"inter_module_{tag}_il_deep600", f"inter_module_{tag}_il_fast"):
+        if (BB / sub / "result.npz").exists():
+            return sub
+    return None
+
+RUNS = {}
+for tag, label, col in (("r1", "symmetric (r1)", "C0"), ("r10", "10x coupler (r10)", "C1")):
+    sub = pick_run(tag)
+    s = load_spec(sub) if sub else None
+    if s is None:
+        print(f"{label}: no complete IS spectrum yet"); continue
+    ns = s["cfg"].get("relay_num_sets", "?")
+    s.update(tag=tag, label=label, col=col, sub=sub,
+             dec=("deep600" if ns == 600 else f"campaign (num_sets={ns})"))
+    RUNS[tag] = s
+    print(f"{label}: {sub}  [{s['dec']}, d_init={s['cfg'].get('lpu_d_init','?')}]  "
+          f"bins w={s['ws'][0]}..{s['ws'][-1]}, {sum(s['tr'])} trials, {sum(s['fa'])} fails")
+
+def mass_below(s, p):
+    """Binomial weight mass at p lying BELOW the lowest sampled weight — the part of
+    LER(p) the reweight silently sets to zero. Also returns mu = mean fault count."""
+    N, qb, pref = s["spec"].n_expanded, s["spec"].q_base, s["spec"].p_ref
+    q = qb * (np.asarray(p, float) / pref)
+    return N * q, binom.cdf(s["ws"][0] - 1, N, q)
+
 pg = np.geomspace(1e-4, 5e-3, 60)
 fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
-for label, sub, col in CELLS:
-    s = load_spec(sub)
-    if s is None:
-        print(f"{label}: IS spectrum not present yet"); continue
-    ws, tr, fa, spec = s
-    m = [(w, f/t) for w,t,f in zip(ws,tr,fa) if f>0]
-    if m:
-        axL.plot([w for w,_ in m], [f for _,f in m], "o-", ms=4, color=col, label=label)
-    rw = reweight_spectrum(spec, pg)
-    axR.plot(pg, rw.P_logical, "-", color=col, label=f"{label} (IS total)")
-# MC-total anchors
-for label, _, col in CELLS:
-    r = MC.get("im_r1_deep600@1e-03" if "r1" in label else "im_r10_deep600@1e-03")
-    if r:
-        axR.plot(r["p"], r["ler"], "s", color=col, ms=9, mec="k", zorder=5)
+for tag, s in RUNS.items():
+    col = s["col"]
+    m = [(w, f/t) for w,t,f in zip(s["ws"], s["tr"], s["fa"]) if f > 0]
+    axL.plot([w for w,_ in m], [f for _,f in m], "o-", ms=3, lw=1, color=col,
+             label=f"{s['label']} [{s['dec']}]")
+    rw = reweight_spectrum(s["spec"], pg)
+    _, below = mass_below(s, pg)
+    ok = below < 0.01
+    axR.plot(pg[ok], rw.P_logical[ok], "-", color=col, lw=2, label=f"{s['label']} IS reweight")
+    axR.plot(pg[~ok], rw.P_logical[~ok], ":", color=col, lw=1)
+# MC anchors — every MC cell for these two models, marker by decoder
+for k, r in MC.items():
+    if not k.startswith("im_r") or r.get("d_init", 12) != 12: continue
+    col = "C1" if k.startswith("im_r10") else "C0"
+    mk, mfc = (("s", col) if r.get("decoder") == "deep600" else ("D", "none"))
+    axR.plot(r["p"], r["ler"], mk, color=col, mfc=mfc, ms=8, mec="k" if mk == "s" else col, zorder=5)
 axL.set_xlabel("fault weight w"); axL.set_ylabel("f(w)"); axL.set_yscale("log")
-axL.set_title("IS failure spectrum (total)"); axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=8)
+axL.set_title("IS failure spectrum (total, any of 23 obs)"); axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=8)
 axR.set_xscale("log"); axR.set_yscale("log"); axR.set_xlabel("physical error rate p")
-axR.set_ylabel("LER (per shot)"); axR.set_title("reweighted IS total + MC anchor (squares)")
+axR.set_ylabel("LER (per shot)"); axR.set_title("reweighted IS (solid = mass sampled) + MC anchors\n■ deep600 MC   ◇ campaign MC")
 axR.grid(alpha=0.3, which="both"); axR.legend(fontsize=8); plt.tight_layout(); plt.show()''')
+
+md(r"""## What is measured and what is extrapolated
+
+The reweight is exact (no ansatz) at any p where the sampled weights cover the
+binomial mass. The IS sampler marched down from w=450 and stopped after three
+consecutive zero-failure bins at 300 shots (r1 at w=50, r10 at w=59) — *nothing below
+the frontier was sampled*. This table gives, per p, the mean fault count μ and the
+fraction of the binomial mass that sits under the frontier (which the reweight sets
+to zero). Below ~4e-4 the answer is ansatz-only.""")
+
+code(r'''P_TAB = [1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 7e-4, 1e-3, 2e-3]
+hdr = f"{'p':>7}"
+for s in RUNS.values(): hdr += f"   {s['tag']+' mu':>7} {'below':>6}"
+print(hdr + "   verdict")
+P_RELIABLE = None
+for p in P_TAB:
+    line, worst = f"{p:7.1e}", 0.0
+    for s in RUNS.values():
+        mu, bel = mass_below(s, p); worst = max(worst, float(bel))
+        line += f"   {float(mu):7.0f} {float(bel):6.1%}"
+    v = "measured" if worst < 0.01 else ("marginal" if worst < 0.1 else "EXTRAPOLATED (ansatz only)")
+    if worst < 0.01 and P_RELIABLE is None: P_RELIABLE = p
+    print(line + f"   {v}")
+print(f"\nlowest p with the mass sampled in every run: {P_RELIABLE}")''')
+
+md(r"""## Ansatz extrapolation toward the 1e-4 regime — and why to distrust it here
+
+The paper's f5 ansatz (arXiv:2511.15177 Eq. 10: onset w0, f0, power-law ramp γ₁→γ₂
+with crossover wc, saturating at 1−2⁻ᴷ) is fitted to the sampled bins with ≥1 failure
+and pushed through the binomial sum to p=1e-4. Bands are a parametric bootstrap:
+resample each bin's failures ~Binom(T, f̂), refit warm-started from the point fit,
+16–84 %. **Limitation of the band:** zero-failure bins stay zero under this
+resampling, so the onset edge is frozen and the band *understates* the w0 uncertainty.
+
+**Why the 1e-4 number is not credible for these spectra:**
+1. At p=1e-4 the binomial mass sits at μ≈20 faults, while the fitted onsets are
+   w0≈48–54. LER(1e-4) is then a pure product of a far binomial tail and f0 — it is
+   ~1e-12, and it is 100 % ansatz.
+2. The fitted w0 is a **detection limit** (where f drops below 1/300 at 300 shots),
+   not the physical minimum failing weight. The family assumes f≡0 below w0.
+3. The campaign relay is known to **miscorrect at low weight**: on the validated Y1
+   circuit it failed at w=3–6 at ~1/400 each. If f(w) below the frontier is a flat
+   decoder floor f_floor instead of zero, then LER(p) → f_floor·P(W ≥ w_min) ≈ f_floor
+   at low p. The dotted horizontal lines are the 95 % bound on such a floor from the
+   pooled zero-failure bins at the frontier (0/900 → 3.3e-3).
+
+So the truth at 1e-4 lies somewhere between the dashed ansatz curve (~1e-12) and the
+dotted floor bound (~3e-3); this spectrum cannot tell. **What would:** direct
+low-weight bins. Resolving a 1e-3 floor needs ~3000 shots per bin at ~5 s/decode, so a
+4-weight probe (w = 10, 20, 30, 40) is ~12 h locally; a full w=5..45 fill is a fish
+job; the deep600 decoder removes the floor but is ~100× slower per shot.
+
+**Expect the extrapolated r10/r1 to invert.** Independently fitted (w0, f0, shape)
+differences amplify exponentially under extrapolation (the `reweight_spectrum`
+docstring's warning); r10's fitted w0 is higher than r1's, so its ansatz curve drops
+*below* r1's at low p. That is a fit artifact, not physics — the measured ratio
+(solid, ≥4e-4) is the number to quote.""")
+
+code(r'''from scipy.special import gammaln
+
+def ler_ansatz(fit, p):
+    """LER(p) = sum_w Binom(w; N, q(p)) f_ansatz(w) — same as the library's
+    logical_error_rate_from_ansatz but with the weight sum truncated where the binomial
+    mass ends (w <= mu + 12 sigma). The library sums to N_expanded = 2.9e6 rows and
+    takes ~10 s per call; this is instant, which the bootstrap needs."""
+    p = np.atleast_1d(np.asarray(p, float)); N = fit.n_expanded
+    q = np.clip(fit.q_base * (p / fit.p_ref), 1e-300, 1 - 1e-15)
+    mu_max = N * q.max(); w_hi = int(min(N, mu_max + 12 * np.sqrt(mu_max) + 50))
+    w = np.arange(int(np.ceil(fit.params["w0"])), w_hi + 1, dtype=float)
+    logb = gammaln(N + 1) - gammaln(w + 1) - gammaln(N - w + 1)
+    logt = logb[:, None] + w[:, None] * np.log(q)[None, :] + (N - w)[:, None] * np.log1p(-q)[None, :]
+    return (fit.f(w)[:, None] * np.exp(logt)).sum(axis=0)
+
+K_OBS = 23
+N_BOOT = 100          # warm-started f5 refits per run (each ~0.05 s + one LER curve)
+rng = np.random.default_rng(7)
+ANS = {}
+for tag, s in RUNS.items():
+    # warm-start from the framework's own fit when present (skips the 36-start grid;
+    # same basin) — the multistart runs only if it's absent
+    fj = BB / s["sub"] / "ansatz_fit.json"
+    fw = json.loads(fj.read_text(encoding="utf-8"))["params"] if fj.exists() else None
+    fit = fit_failure_spectrum(s["raw"], K_OBS, model="f5", init_params=fw)
+    P_fit = ler_ansatz(fit, pg)
+    if tag == "r1":   # one-time check of the truncated sum against the library, at p=1e-3
+        lib = float(logical_error_rate_from_ansatz(fit, [1e-3])[0]); mine = float(ler_ansatz(fit, [1e-3])[0])
+        print(f"truncated-sum check at 1e-3: library {lib:.4e}  here {mine:.4e}  (rel diff {abs(lib-mine)/lib:.1e})")
+    tr, fa = np.array(s["tr"]), np.array(s["fa"])
+    boots = []
+    for _ in range(N_BOOT):
+        fb = rng.binomial(tr, np.clip(fa / tr, 0, 1))
+        try:
+            bfit = fit_failure_spectrum(
+                FailureSpectrum(weights=s["ws"], trials=list(tr), failures=list(fb),
+                                n_expanded=s["raw"].n_expanded, q_base=s["raw"].q_base,
+                                p_ref=s["raw"].p_ref),
+                K_OBS, model="f5", init_params=fit.params)
+            boots.append(ler_ansatz(bfit, pg))
+        except (ValueError, RuntimeError):
+            pass
+    boots = np.array(boots)
+    # decoder-floor bracket: 95% bound on a flat f below the frontier from the pooled
+    # zero-failure bins at the frontier (the three stop-rule bins)
+    T0 = sum(t for w, t, f in zip(s["ws"], s["tr"], s["fa"]) if f == 0 and w < s["ws"][0] + 5)
+    ANS[tag] = dict(fit=fit, P=P_fit, boots=boots,
+                    lo=(np.percentile(boots, 16, axis=0) if len(boots) else None),
+                    hi=(np.percentile(boots, 84, axis=0) if len(boots) else None),
+                    f_floor95=(3.0 / T0 if T0 else float("nan")))
+    pp = fit.params
+    print(f"{s['label']} [{s['dec']}]: f5  w0={pp['w0']:.1f}  f0={pp['f0']:.2e}  "
+          f"gamma1={pp['gamma1']:.2f}  gamma2={pp['gamma2']:.2f}  wc={pp['wc']:.0f}   "
+          f"(n={fit.n_points}, cost={fit.cost:.0f}, {len(boots)}/{N_BOOT} boots converged)")
+    if fw:
+        print(f"   framework's fit:  w0={fw['w0']:.1f}  f0={fw['f0']:.2e}  gamma1={fw['gamma1']:.2f}  "
+              f"gamma2={fw['gamma2']:.2f}  wc={fw['wc']:.0f}   (used as warm start)")
+    print(f"   frontier w={s['ws'][0]}; flat-floor 95% bound below it: f <= {ANS[tag]['f_floor95']:.1e}")''')
+
+code(r'''fig, (axL, axR) = plt.subplots(1, 2, figsize=(13, 4.8))
+reliable = np.ones_like(pg, bool)
+for tag, s in RUNS.items():
+    col, a = s["col"], ANS[tag]
+    rw = reweight_spectrum(s["spec"], pg)
+    _, below = mass_below(s, pg); ok = below < 0.01; reliable &= ok
+    axL.plot(pg[ok], rw.P_logical[ok], "-", color=col, lw=2.2, label=f"{s['label']} measured")
+    axL.plot(pg, a["P"], "--", color=col, lw=1.4, label=f"{s['label']} f5 ansatz")
+    if a["lo"] is not None:
+        axL.fill_between(pg, np.maximum(a["lo"], 1e-16), a["hi"], color=col, alpha=0.15)
+    axL.axhline(a["f_floor95"], color=col, ls=":", lw=1.2)
+if reliable.any():
+    axL.axvspan(pg[0], pg[reliable].min(), color="grey", alpha=0.10)
+    axL.text(pg[0]*1.1, 3e-2, "ansatz only\n(mass below\nsampled frontier)", fontsize=8, color="0.3")
+axL.set_xscale("log"); axL.set_yscale("log"); axL.set_ylim(1e-14, 1.5)
+axL.set_xlabel("physical error rate p"); axL.set_ylabel("LER (per shot)")
+axL.set_title("measured reweight (solid) vs f5 extrapolation (dashed, 16–84% band)\ndotted: 95% bound if f is a flat decoder floor below the frontier")
+axL.grid(alpha=0.3, which="both"); axL.legend(fontsize=7, loc="lower right")
+
+if {"r1", "r10"} <= set(RUNS):
+    r1, r10 = reweight_spectrum(RUNS["r1"]["spec"], pg), reweight_spectrum(RUNS["r10"]["spec"], pg)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        meas = r10.P_logical / r1.P_logical
+        ans = ANS["r10"]["P"] / ANS["r1"]["P"]
+    axR.plot(pg[reliable], meas[reliable], "-", color="k", lw=2.2, label="measured (both spectra cover the mass)")
+    axR.plot(pg, ans, "--", color="C3", lw=1.4, label="f5 ansatz ratio (fit artifact where it inverts)")
+    b1, b10 = ANS["r1"]["boots"], ANS["r10"]["boots"]
+    n = min(len(b1), len(b10))
+    if n > 10:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rb = b10[:n] / b1[:n]
+        axR.fill_between(pg, np.nanpercentile(rb, 16, axis=0), np.nanpercentile(rb, 84, axis=0),
+                         color="C3", alpha=0.15)
+    axR.axhline(1.0, color="0.5", lw=1)
+    if reliable.any(): axR.axvspan(pg[0], pg[reliable].min(), color="grey", alpha=0.10)
+    axR.set_xscale("log"); axR.set_xlabel("physical error rate p"); axR.set_ylabel("LER(r10) / LER(r1)")
+    axR.set_ylim(0, 3); axR.set_title("coupler sensitivity: 10× worse Bell fidelity → total LER ratio")
+    axR.grid(alpha=0.3, which="both"); axR.legend(fontsize=8)
+plt.tight_layout(); plt.show()
+
+# the numbers
+print(f"{'p':>7} " + " ".join(f"{'LER '+t+' meas':>14} {'LER '+t+' f5':>12}" for t in RUNS) +
+      f" {'ratio meas':>10} {'ratio f5':>9}  status")
+for p in P_TAB:
+    line = f"{p:7.1e} "
+    vals = {}
+    for tag, s in RUNS.items():
+        mu, bel = mass_below(s, p)
+        m = float(reweight_spectrum(s["spec"], [p]).P_logical[0])
+        a = float(ler_ansatz(ANS[tag]["fit"], [p])[0])
+        vals[tag] = (m, a, float(bel))
+        line += f" {(f'{m:.3e}' if bel < 0.01 else '   (not covered)'):>14} {a:12.3e}"
+    if {"r1", "r10"} <= set(vals):
+        m1, a1, b1_ = vals["r1"]; m10, a10, b10_ = vals["r10"]
+        cov = max(b1_, b10_) < 0.01
+        line += f" {(f'{m10/m1:.2f}' if cov and m1 else '—'):>10} {(a10/a1 if a1 else float('nan')):9.2f}"
+        line += "  measured" if cov else "  EXTRAPOLATED — do not quote"
+    print(line)''')
+
+md(r"""## The d_init sweep: merge cost vs idle cost
+
+The production circuit pads the C=10 merged rounds with d_init=12 bare rounds on each
+side, so its LER mixes the **merge** (the thing we want) with **24 rounds of idle
+memory**. The literature's four conventions for separating them are: no padding
+(Tour de Gross per-operation numbers), d-padding decoded holistically, post-hoc
+spacetime attribution, or a **padding sweep** — vary d_init and fit LER at fixed p
+linearly in the number of bare rounds: the intercept at zero padding is the merge-only
+cost, the slope the per-idle-round cost. This section does the sweep from the direct
+MC cells (`mc_dinit.json`: campaign decoder, d_init ∈ {12, 6}, p ∈ {1e-3, 7e-4, 5e-4}),
+overlaying the IS-reweighted d_init=12 value as a cross-check.
+
+**Two confounds, stated up front.** Fewer padding rounds removes idle faults (LER
+down, ~linear in rounds) but *also* removes decoding context after the merge — the
+sliding-window buffer argument — which raises the merge's own failure rate once
+d_init falls below the code distance, so a two-point intercept biases the merge cost
+**upward**. And the time-like distance shrinks with d_init, so the sweep is meaningful
+in the measured window (p ≥ 4e-4, where failures are volume-dominated), not for
+extrapolation. A third point (d_init=3 or 9) tests the linearity.""")
+
+code(r'''def sweep_rows(coupler):
+    """[(p, d_init, fails, shots, ler, ler_out, ler_mem)] for the campaign-decoder MC cells."""
+    out = []
+    for k, r in MC.items():
+        if r.get("decoder") != "campaign" or r.get("d_init") is None: continue
+        if r.get("coupler_factor") != coupler or not k.startswith("im_r"): continue
+        out.append((r["p"], r["d_init"], r["fails"], r["shots"], r["ler"], r["ler_out"], r["ler_mem"]))
+    return sorted(out)
+
+SWEEP = {"r1": sweep_rows(1), "r10": sweep_rows(10)}
+have = {t: sorted({d for _, d, *_ in rows}) for t, rows in SWEEP.items()}
+print("d_init values present per model:", have)
+
+print(f"\n{'model':5s} {'p':>7} {'d_init':>6} {'rounds':>6} {'fails/shots':>12} {'LER':>10} {'LER_out':>10} {'LER_mem':>10}")
+for t, rows in SWEEP.items():
+    for p, d, F, n, ler, lo, lm in rows:
+        print(f"{t:5s} {p:7.1e} {d:6d} {2*d+10:6d} {F:5d}/{n:<6d} {ler:10.3e} {lo:10.3e} {lm:10.3e}")
+
+INTERCEPTS = {}
+ps = sorted({p for rows in SWEEP.values() for p, *_ in rows})
+if ps:
+    fig, axes = plt.subplots(1, len(ps), figsize=(4.6*len(ps), 4.2), squeeze=False)
+    for ax, p in zip(axes[0], ps):
+        for t, col in (("r1", "C0"), ("r10", "C1")):
+            pts = [(2*d, ler, np.sqrt(max(F,1))/n) for pp, d, F, n, ler, *_ in SWEEP[t] if abs(pp-p) < 1e-12]
+            if not pts: continue
+            x, y, e = map(np.array, zip(*pts))
+            ax.errorbar(x, y, yerr=e, fmt="o", color=col, capsize=3, label=f"{t} MC")
+            if t in RUNS and abs(RUNS[t]["cfg"].get("lpu_d_init", 12) - 12) < 1e-9:
+                _, bel = mass_below(RUNS[t], p)
+                if bel < 0.01:
+                    ax.plot(24, float(reweight_spectrum(RUNS[t]["spec"], [p]).P_logical[0]), "x",
+                            color=col, ms=9, mew=2, label=f"{t} IS reweight (d12)")
+            if len(np.unique(x)) >= 2:
+                W = 1.0 / np.maximum(e, 1e-12)
+                slope, icpt = np.polyfit(x, y, 1, w=W)
+                xx = np.linspace(0, 26, 20); ax.plot(xx, icpt + slope*xx, "--", color=col, lw=1)
+                INTERCEPTS[(t, p)] = (icpt, slope)
+                ax.plot(0, icpt, "s", color=col, mfc="none", ms=8)
+        ax.set_title(f"p = {p:.0e}"); ax.set_xlabel("bare (idle) rounds = 2·d_init"); ax.set_ylabel("LER (total)")
+        ax.set_xlim(-1, 26); ax.grid(alpha=0.3); ax.legend(fontsize=7)
+    plt.suptitle("d_init sweep: intercept at 0 bare rounds = merge-only cost (open square); slope = per idle round")
+    plt.tight_layout(); plt.show()
+
+if INTERCEPTS:
+    print(f"\n{'p':>7} {'merge-only r1':>14} {'merge-only r10':>15} {'r10/r1 (merge)':>15} {'per-round r1':>13} {'per-round r10':>14}")
+    for p in ps:
+        a, b = INTERCEPTS.get(("r1", p)), INTERCEPTS.get(("r10", p))
+        if a and b:
+            print(f"{p:7.1e} {a[0]:14.3e} {b[0]:15.3e} {b[0]/a[0] if a[0] > 0 else float('nan'):15.2f} "
+                  f"{a[1]:13.3e} {b[1]:14.3e}")
+    print("\n(intercepts assume LER linear in idle rounds; a negative intercept means the two points\n"
+          " are within noise of each other or the decoding-context effect dominates — needs a 3rd d_init)")
+else:
+    print("\nneed MC cells at >=2 d_init values (same model, same p) for the intercept/slope fit")''')
 
 md(r"""## Reading it
 
 * **The sensitivity table/bars are the headline** — the `r10/r1` ratio per channel
   says whether 10× worse Bell couplers threaten the measurement **output**, the
   **stored memory**, or both.
-* **Squares on the right panel are the MC totals**; if they land off the IS curves,
-  the IS-vs-MC cross-check has failed (suspect the DEM sector or the reweight) —
-  they should agree within errors.
-* **Bounds vs zeros**: an IS bin with 0 measured failures is a rule-of-three bound,
-  not a zero; the deep low-weight tail is unmeasured, not absent.
+* **Measured coupler sensitivity (IS reweight, campaign decoder, d_init=12):**
+  r10/r1 ≈ 1.7 at 4e-4, 1.5 at 5e-4–7e-4, 1.2 at 1e-3, →1 as both saturate. It grows
+  as p falls because the bulk memory term dies faster than the O(d) coupler seam.
+* **Squares/diamonds on the reweight panel are MC totals**; a diamond off its
+  campaign curve means the IS-vs-MC cross-check failed (suspect the DEM sector or the
+  reweight) — they should agree within errors.
+* **The ansatz section is a bracket, not a number**: at 1e-4 the answer lies between
+  the f5 extrapolation and the flat-floor bound, orders of magnitude apart. Quote the
+  measured window (≥4e-4) and say the low-p regime needs low-weight bins.
+* **The d_init sweep's intercept is an upper bound on the merge cost** (context
+  confound) until a third padding value confirms linearity.
 * **Caveats** (from the top cell): 22/23 memory logicals; F_mem is Z-basis-visible
   only. Don't over-read the absolute memory numbers against the paper's K-harness
   framing — the r1-vs-r10 *ratio* is the robust quantity.""")
