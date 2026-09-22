@@ -119,7 +119,8 @@ def _build_intermodule_circuit(cfg: "Config"):
         p_coupler=cfg.p_ref * r,
         include_memory_observables=cfg.lpu_include_memory_obs,
         idle_noise=cfg.lpu_idle_noise,
-        interleaved_idle_depth=cfg.lpu_interleaved_idle_depth)
+        interleaved_idle_depth=cfg.lpu_interleaved_idle_depth,
+        noiseless_return=cfg.lpu_noiseless_return)
 
 
 def _build_automorphism_circuit(cfg: "Config"):
@@ -192,6 +193,10 @@ class Config:
     lpu_interleaved_idle_depth: Optional[int] = None
     lpu_include_memory_obs: bool = True   # joint_pauli: outcome + 11 commuting Z̄ memory obs
     lpu_shift: Optional[str] = None       # automorphism experiment: 'x' or 'y' (None = builder default 'y')
+    # Tour de Gross per-instruction framing (Sec. 2.6: error-free code state before the
+    # operation, ONE noise-free stabilizer cycle after): lpu_d_init: 0 + this flag makes the
+    # inter_module return cycle noiseless. Default False = the padded fail-fast framing.
+    lpu_noiseless_return: bool = False
     p_coupler_factor: float = 1.0         # inter_module: p_coupler = p_coupler_factor * p_phys (Bell-pair
                                           # fidelity knob; integer keeps the Technique-I expansion exact)
     # Five-channel budget campaigns: isolate ONE channel (noise_channel) or drop one channel,

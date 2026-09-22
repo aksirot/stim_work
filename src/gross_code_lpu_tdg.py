@@ -3084,6 +3084,7 @@ def build_joint_x1x1_circuit(
     idle_noise: bool = False,
     close_cycles: bool = True,
     interleaved_idle_depth: Optional[int] = None,
+    noiseless_return: bool = False,
 ) -> stim.Circuit:
     """Gross-to-gross INTER-MODULE joint measurement of X̄₁(A)⊗X̄₁(B) via the
     code-code adapter (Tour de Gross arXiv:2506.03094). Structurally the X̄₁
@@ -3095,6 +3096,15 @@ def build_joint_x1x1_circuit(
     edge |0⟩ init → C merged rounds [A l-cycle, B l-cycle, adapter cycle] → edge
     Z-readout → 1 bare return + boundary → d_init trailing bare → noiseless
     transversal Z readout.
+
+    TOUR DE GROSS FRAMING (2026-09-22): the paper's per-instruction LERs assume
+    "the system begins in an error-free code state prior to the logical operation,
+    and a final cycle of noise-free stabilizer measurements is performed at the
+    end" (Sec. 2.6) — i.e. NO memory padding. Reproduce it with d_init=0 (allowed
+    now; the merged rounds then compare against the noiseless encoding round) and
+    noiseless_return=True (the single bare return cycle — the paper's "final cycle
+    of syndrome measurement in the original code" — is emitted noise-free). The
+    transversal readout is noiseless in every framing.
 
     obs 0 = MPP ⊕ the 24 V_l vertex records (12 A + 12 B) of the last round ⊕ the
     11 bridge Bell-check records of the last round: the product of a module's 12
@@ -3119,7 +3129,7 @@ def build_joint_x1x1_circuit(
     (idle_pool threading through build_lpu_cycle + the merged-graph correction
     recipe come after E1/E2/E3 pin the stabilizer structure and U1).
     """
-    assert C >= 1 and d_init >= 1
+    assert C >= 1 and d_init >= 0          # d_init=0 = Tour de Gross no-padding framing
     p = error_model.p_phys
     pm = error_model.p_meas
     if p_coupler is None:
@@ -3273,7 +3283,8 @@ def build_joint_x1x1_circuit(
     # The deformed Z-checks picked up Z_e during the LPU rounds; at the bare
     # (undeformed) return their compare needs the return-readout m_e of those
     # edges (mirrors build_joint_pauli_circuit's [6/7] boundary).
-    xA, zA, xB, zB = bb_round_both(error_model)
+    # noiseless_return: the paper's "final cycle of noise-free stabilizer measurements"
+    xA, zA, xB, zB = bb_round_both(noiseless if noiseless_return else error_model)
     circuit.append("TICK")
     last = hist[C - 1]
     for s in range(N_C):

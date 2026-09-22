@@ -1,0 +1,38 @@
+# Inter-module joint X̄₁(A)⊗X̄₁(B), 10x-WORSE couplers, TOUR DE GROSS FRAMING.
+# r10 twin of gross_intermodule_r1_il_fast_tdg.yaml (see its header): no memory padding
+# (lpu_d_init: 0) + noise-free return cycle (lpu_noiseless_return). Consumed by
+# lpu_direct_mc.py (op im_r10_fast_tdg).
+label: gross_intermodule_r10_il_fast_tdg
+outdir: runs/framework/bb144/inter_module_r10_il_fast_tdg
+code_name: bb144
+experiment: inter_module
+decoder_name: relay
+techniques: [IS, I]
+
+p_ref: 0.005
+p_lo: 1.0e-4
+p_hi: 0.005
+p_coupler_factor: 10
+lpu_C: 10
+lpu_d_init: 0                  # <-- NO padding (paper framing); 12 in the production configs
+lpu_noiseless_return: true     # <-- the final bare cycle is the paper's noise-free final cycle
+lpu_idle_noise: true
+lpu_interleaved_idle_depth: 12
+lpu_include_memory_obs: true   # K=23: obs0 output + 22 memory (F_out/F_mem split)
+
+relay_gamma0: 0.125
+relay_pre_iter: 80
+relay_num_sets: 20             # campaign relay (deep600 is 600; fish-only locally)
+relay_set_max_iter: 60
+relay_gamma_lo: -0.24
+relay_gamma_hi: 0.66
+relay_stop_nconv: 5
+
+mw_single_sector: false        # K=23 mixes X-type obs0 + Z-type memory obs (full DEM)
+
+weights_range: [1, 450]        # only used if someone runs the IS on this config
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 300
+adaptive_stop_zero_bins: 3

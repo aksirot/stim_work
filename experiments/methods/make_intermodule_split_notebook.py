@@ -72,7 +72,7 @@ BB = REPO_ROOT / "runs" / "framework" / "bb144"
 def load_mc():
     """Merge the per-cell MC json files."""
     out = {}
-    for f in ("mc_r1.json", "mc_r10.json", "lpu_direct_mc.json", "mc_dinit.json"):
+    for f in ("mc_r1.json", "mc_r10.json", "lpu_direct_mc.json", "mc_dinit.json", "mc_tdg_m5.json"):
         p = BB / f
         if p.exists():
             out.update(json.loads(p.read_text(encoding="utf-8")))
@@ -209,6 +209,7 @@ for tag, s in RUNS.items():
 # MC anchors — every MC cell for these two models, marker by decoder
 for k, r in MC.items():
     if not k.startswith("im_r") or r.get("d_init", 12) != 12: continue
+    if r.get("noise_scale") or r.get("noiseless_return"): continue     # other model/framing
     col = "C1" if k.startswith("im_r10") else "C0"
     mk, mfc = (("s", col) if r.get("decoder") == "deep600" else ("D", "none"))
     axR.plot(r["p"], r["ler"], mk, color=col, mfc=mfc, ms=8, mec="k" if mk == "s" else col, zorder=5)
@@ -448,6 +449,7 @@ code(r'''def sweep_rows(coupler):
     for k, r in MC.items():
         if r.get("decoder") != "campaign" or r.get("d_init") is None: continue
         if r.get("coupler_factor") != coupler or not k.startswith("im_r"): continue
+        if r.get("noise_scale") or r.get("noiseless_return"): continue   # other model/framing: own section
         out.append((r["p"], r["d_init"], r["fails"], r["shots"], r["ler"], r["ler_out"], r["ler_mem"]))
     return sorted(out)
 
@@ -548,6 +550,90 @@ for p in ps:
     print(f"{p:7.1e} {a[0]:12.3e} {b[0]:13.3e} {ratio:7.2f} {ratio*rel:6.2f}   {r12:>14}   {ch}")
 if not ps:
     print("\nneed MC cells (mc_dinit.json) for the sweep")''')
+
+md(r"""## Matching Tour de Gross: the framing, not the padding
+
+Tour de Gross reports per-*instruction* logical error rates (Table 2: gross inter-module
+measurement **10^−2.7 ≈ 2e-3 at p=1e-3**, in-module 1e-5, idle 10^−8.8 per 88 timesteps).
+Its framing (Sec. 2.6): *"the system begins in an error-free code state prior to the
+logical operation, and a final cycle of noise-free stabilizer measurements are performed
+at the end"* — **no memory padding at all**. Our production circuit wraps the C=10 merged
+rounds in 24 noisy bare rounds, and the d_init sweep showed those rounds dominate the
+failure count for the campaign decoder (memory-only failures ≈ 93 % of the total). So the
+padded number is not the paper's quantity, and no linear fit will recover it.
+
+The `*_tdg` cells build the paper's framing directly: `lpu_d_init: 0` (merged rounds
+follow the noiseless encoding round) and `lpu_noiseless_return: true` (the single return
+cycle is the paper's noise-free final cycle; the transversal readout is already
+noiseless). Remaining known differences from the paper, in the direction they push us:
+* **decoder** — campaign relay (num_sets=20) vs the paper's relay-BP; deep600 is the
+  paper-grade setting and gave ~12× fewer failures on Y1 → expect ours **higher**;
+* **failure definition** — ours is obs0 + 22 *Z-visible* memory logicals; the paper counts
+  any logical action (X-type memory errors too) → expect ours **lower**, ≤2×;
+* everything else (noise model p/15, p/3, p; C=10; interleaved cycle depth 12) matches.
+
+So a campaign-decoder TDG-framed LER in the range ~(2e-3 … 3e-2) at 1e-3 is consistent
+with the paper; the deep600 rerun on fish is the actual match.""")
+
+code(r'''PAPER = {"inter_module": 10**-2.7, "in_module": 10**-5.0, "idle_88ts": 10**-8.8}   # Table 2, p=1e-3
+def cells(pred):
+    return {k: r for k, r in MC.items() if k.startswith("im_r") and pred(r)}
+TDG = cells(lambda r: r.get("noiseless_return") and r.get("d_init") == 0 and not r.get("noise_scale"))
+print(f"paper (Table 2, p=1e-3): inter-module {PAPER['inter_module']:.1e}   in-module {PAPER['in_module']:.1e}")
+print(f"\n{'cell':22s} {'p':>7} {'fails/shots':>12} {'LER':>10} {'LER_out':>10} {'LER_mem':>10} {'vs paper':>9}  note")
+for k, r in sorted(TDG.items(), key=lambda kv: (kv[1]['coupler_factor'], -kv[1]['p'])):
+    n = r["shots"]; note = ""
+    if abs(r["p"] - 1e-3) < 1e-12:
+        note = f"x{r['ler']/PAPER['inter_module']:.1f} the paper (campaign decoder; deep600 ~12x fewer fails)"
+    print(f"{k:22s} {r['p']:7.1e} {r['fails']:5d}/{n:<6d} {r['ler']:10.3e} {r['f_out']/n:10.3e} {r['f_mem']/n:10.3e} "
+          f"{(r['ler']/PAPER['inter_module'] if abs(r['p']-1e-3)<1e-12 else float('nan')):9.1f}  {note}")
+# the padding ladder at 1e-3, same decoder: d12 -> d6 -> paper framing
+print("\npadding ladder at p=1e-3 (campaign decoder, total LER):")
+for label, pred in (("d_init=12 (34 noisy rounds)", lambda r: r.get("d_init") == 12 and not r.get("noise_scale") and not r.get("noiseless_return")),
+                    ("d_init=6  (22 noisy rounds)", lambda r: r.get("d_init") == 6 and not r.get("noise_scale")),
+                    ("paper framing (10 merged + 0)", lambda r: r.get("noiseless_return") and not r.get("noise_scale"))):
+    for tag, cf in (("r1", 1), ("r10", 10)):
+        hit = [r for r in cells(pred).values() if r.get("coupler_factor") == cf and abs(r["p"] - 1e-3) < 1e-12]
+        if hit:
+            r = hit[0]
+            print(f"  {label:30s} {tag:4s} LER={r['ler']:.3e}  (out {r['f_out']/r['shots']:.2e}, mem {r['f_mem']/r['shots']:.2e})")
+if not TDG:
+    print("\n(no paper-framing cells yet — mc_tdg_m5.json)")''')
+
+md(r"""## Asymmetric device point: measurement ×5, measurement-idle ×5
+
+The device-like operating point used for the 18/72-code error-model comparison,
+applied to the inter-module circuit (padded d_init=12 framing, campaign decoder):
+every measurement flip at 5p, and the measure/reset dead-time idle at 5× — in the bare
+rounds directly on their M/R-anchored idle layer, in the merged LPU rounds as 4 extra
+timestep-equivalents on the data-like qubits' per-round interleaved idle lump (one of the
+12 timesteps is the dead time). Gate, prep and gate-idle noise unchanged. Compared
+against the symmetric cells at the same p; the split says whether hot measurements hit
+the output parity or the stored memory.""")
+
+code(r'''M5C = cells(lambda r: r.get("noise_scale"))
+SYM = cells(lambda r: not r.get("noise_scale") and not r.get("noiseless_return") and r.get("d_init") == 12)
+def find(cs, cf, p, d=None):
+    for r in cs.values():
+        if r.get("coupler_factor") == cf and abs(r["p"] - p) < 1e-12 and (d is None or r.get("d_init") == d):
+            return r
+    return None
+print(f"{'p':>7} {'model':5s} {'d_init':>6} {'sym LER':>10} {'m5 LER':>10} {'m5/sym':>7} | {'out sym':>9} {'out m5':>9} {'x':>5} | {'mem sym':>9} {'mem m5':>9} {'x':>5}")
+for p in sorted({r["p"] for r in M5C.values()}, reverse=True):
+    for tag, cf in (("r1", 1), ("r10", 10)):
+        for d in (12, 6, 0):
+            m = find(M5C, cf, p, d)
+            if not m: continue
+            s = find(SYM if d == 12 else cells(lambda r, d=d: not r.get("noise_scale") and r.get("d_init") == d), cf, p, d)
+            def rate(r, key): return r[key] / r["shots"]
+            if s:
+                print(f"{p:7.1e} {tag:5s} {d:6d} {s['ler']:10.3e} {m['ler']:10.3e} {m['ler']/s['ler']:7.2f} | "
+                      f"{rate(s,'f_out'):9.2e} {rate(m,'f_out'):9.2e} {rate(m,'f_out')/max(rate(s,'f_out'),1e-12):5.1f} | "
+                      f"{rate(s,'f_mem'):9.2e} {rate(m,'f_mem'):9.2e} {rate(m,'f_mem')/max(rate(s,'f_mem'),1e-12):5.1f}")
+            else:
+                print(f"{p:7.1e} {tag:5s} {d:6d} {'—':>10} {m['ler']:10.3e}   (no symmetric cell at this p/d_init to compare)")
+if not M5C:
+    print("(no meas x5 cells yet — mc_tdg_m5.json)")''')
 
 md(r"""## Reading it
 
