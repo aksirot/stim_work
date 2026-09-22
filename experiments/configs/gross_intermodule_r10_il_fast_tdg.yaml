@@ -30,7 +30,7 @@ relay_stop_nconv: 5
 
 mw_single_sector: false        # K=23 mixes X-type obs0 + Z-type memory obs (full DEM)
 
-weights_range: [1, 450]        # only used if someone runs the IS on this config
+weights_range: [1, 420]        # IS plan: E[faults](5e-3) ~ 330 (r10 couplers add mass), +4 sigma ~ 405; 420 covers p_hi
 adaptive: true
 adaptive_failures: 20
 adaptive_shots_min: 4
