@@ -426,7 +426,21 @@ sliding-window buffer argument — which raises the merge's own failure rate onc
 d_init falls below the code distance, so a two-point intercept biases the merge cost
 **upward**. And the time-like distance shrinks with d_init, so the sweep is meaningful
 in the measured window (p ≥ 4e-4, where failures are volume-dominated), not for
-extrapolation. A third point (d_init=3 or 9) tests the linearity.""")
+extrapolation.
+
+**What the data showed (2026-09-22, campaign decoder).** The linear-in-rounds model
+fails outright: LER(d12)/LER(d6) is 3, 7 and 21 at p = 1e-3, 7e-4, 5e-4, where a
+volume model allows at most ~2. Every intercept is negative. Halving the padding
+removed far more failures than the removed rounds could have produced, so the
+per-round failure rate itself grows with circuit length — the campaign relay
+(num_sets=20) is decoder-limited on the 34-round circuit at these p (consistent with
+the IS diagnostic that its mean failing weight equals μ, i.e. it sits at threshold).
+The cell therefore reports the intercept only with a validity verdict, and gives what
+the sweep does establish: **LER(d6) is an upper bound on the merge-only cost**, and
+the **coupler sensitivity at reduced padding** (r10/r1 at d6 ≈ 2.4, 3.1, ~11 at 1e-3,
+7e-4, 5e-4 vs 1.2, 1.5, 1.5 at d12) — the padding was diluting the coupler effect.
+The way to a real merge cost is a decoder that is not length-limited (deep600 at d6
+on fish) or the paper's no-padding convention, not a third d_init with this decoder.""")
 
 code(r'''def sweep_rows(coupler):
     """[(p, d_init, fails, shots, ler, ler_out, ler_mem)] for the campaign-decoder MC cells."""
@@ -446,21 +460,34 @@ for t, rows in SWEEP.items():
     for p, d, F, n, ler, lo, lm in rows:
         print(f"{t:5s} {p:7.1e} {d:6d} {2*d+10:6d} {F:5d}/{n:<6d} {ler:10.3e} {lo:10.3e} {lm:10.3e}")
 
+def point(t, p, d):
+    """(LER, se, source) at (model, p, d_init): MC cell if present, else — for d_init=12 —
+    the IS reweight where the mass is sampled. None if neither."""
+    for pp, dd, F, n, ler, *_ in SWEEP[t]:
+        if abs(pp - p) < 1e-12 and dd == d:
+            return ler, np.sqrt(max(F, 1)) / n, "MC"
+    if d == 12 and t in RUNS and RUNS[t]["cfg"].get("lpu_d_init", 12) == 12:
+        _, bel = mass_below(RUNS[t], p)
+        if bel < 0.01:
+            rw = reweight_spectrum(RUNS[t]["spec"], [p])
+            return float(rw.P_logical[0]), float(rw.P_logical_se[0]), "IS"
+    return None
+
 INTERCEPTS = {}
 ps = sorted({p for rows in SWEEP.values() for p, *_ in rows})
+DS = sorted({d for rows in SWEEP.values() for _, d, *_ in rows} | {12})
 if ps:
     fig, axes = plt.subplots(1, len(ps), figsize=(4.6*len(ps), 4.2), squeeze=False)
     for ax, p in zip(axes[0], ps):
         for t, col in (("r1", "C0"), ("r10", "C1")):
-            pts = [(2*d, ler, np.sqrt(max(F,1))/n) for pp, d, F, n, ler, *_ in SWEEP[t] if abs(pp-p) < 1e-12]
+            pts = [(d, point(t, p, d)) for d in DS]
+            pts = [(2*d, v[0], v[1], v[2]) for d, v in pts if v]
             if not pts: continue
-            x, y, e = map(np.array, zip(*pts))
-            ax.errorbar(x, y, yerr=e, fmt="o", color=col, capsize=3, label=f"{t} MC")
-            if t in RUNS and abs(RUNS[t]["cfg"].get("lpu_d_init", 12) - 12) < 1e-9:
-                _, bel = mass_below(RUNS[t], p)
-                if bel < 0.01:
-                    ax.plot(24, float(reweight_spectrum(RUNS[t]["spec"], [p]).P_logical[0]), "x",
-                            color=col, ms=9, mew=2, label=f"{t} IS reweight (d12)")
+            for x_, y_, e_, src in pts:
+                ax.errorbar([x_], [y_], yerr=[e_], fmt=("o" if src == "MC" else "x"), color=col,
+                            capsize=3, ms=(6 if src == "MC" else 9), mew=2,
+                            label=f"{t} {src}" if src == "IS" or x_ == min(q[0] for q in pts) else None)
+            x, y, e = (np.array([q[i] for q in pts]) for i in range(3))
             if len(np.unique(x)) >= 2:
                 W = 1.0 / np.maximum(e, 1e-12)
                 slope, icpt = np.polyfit(x, y, 1, w=W)
@@ -468,21 +495,59 @@ if ps:
                 INTERCEPTS[(t, p)] = (icpt, slope)
                 ax.plot(0, icpt, "s", color=col, mfc="none", ms=8)
         ax.set_title(f"p = {p:.0e}"); ax.set_xlabel("bare (idle) rounds = 2·d_init"); ax.set_ylabel("LER (total)")
-        ax.set_xlim(-1, 26); ax.grid(alpha=0.3); ax.legend(fontsize=7)
-    plt.suptitle("d_init sweep: intercept at 0 bare rounds = merge-only cost (open square); slope = per idle round")
+        ax.set_yscale("log"); ax.set_xlim(-1, 26); ax.grid(alpha=0.3, which="both"); ax.legend(fontsize=7)
+    plt.suptitle("d_init sweep (log y): dashed = weighted linear fit in rounds; open square = its intercept (merge-only IF linear)")
     plt.tight_layout(); plt.show()
 
+# --- is LER linear in rounds at all?  volume model: LER(d12)/LER(d6) <= 34/22 = 1.55 (all rounds)
+#     or 24/12 = 2 (bare rounds only). Much larger => the per-round failure rate itself grows
+#     with circuit length (decoder-limited regime), and a linear intercept is meaningless.
+print(f"\n{'p':>7} {'model':5s} {'LER d12':>10} {'src':>3} {'LER d6':>10} {'d12/d6':>7}  verdict")
+LINEAR_OK = {}
+for p in ps:
+    for t in ("r1", "r10"):
+        a, b = point(t, p, 12), point(t, p, 6)
+        if not (a and b): continue
+        r = a[0] / b[0] if b[0] > 0 else float("inf")
+        ok = r <= 2.2
+        LINEAR_OK[(t, p)] = ok
+        print(f"{p:7.1e} {t:5s} {a[0]:10.3e} {a[2]:>3} {b[0]:10.3e} {r:7.1f}  "
+              f"{'volume-like: linear model usable' if ok else 'per-round failure GROWS with length -> linear intercept invalid'}")
+
 if INTERCEPTS:
-    print(f"\n{'p':>7} {'merge-only r1':>14} {'merge-only r10':>15} {'r10/r1 (merge)':>15} {'per-round r1':>13} {'per-round r10':>14}")
+    print(f"\n{'p':>7} {'model':5s} {'intercept (merge-only if linear)':>32} {'slope / bare round':>18}  status")
     for p in ps:
-        a, b = INTERCEPTS.get(("r1", p)), INTERCEPTS.get(("r10", p))
-        if a and b:
-            print(f"{p:7.1e} {a[0]:14.3e} {b[0]:15.3e} {b[0]/a[0] if a[0] > 0 else float('nan'):15.2f} "
-                  f"{a[1]:13.3e} {b[1]:14.3e}")
-    print("\n(intercepts assume LER linear in idle rounds; a negative intercept means the two points\n"
-          " are within noise of each other or the decoding-context effect dominates — needs a 3rd d_init)")
-else:
-    print("\nneed MC cells at >=2 d_init values (same model, same p) for the intercept/slope fit")''')
+        for t in ("r1", "r10"):
+            v = INTERCEPTS.get((t, p))
+            if not v: continue
+            icpt, slope = v
+            st = ("OK" if (icpt > 0 and LINEAR_OK.get((t, p), False)) else
+                  "NEGATIVE — not a merge cost" if icpt <= 0 else "linear model not supported by the d12/d6 ratio")
+            print(f"{p:7.1e} {t:5s} {icpt:32.3e} {slope:18.3e}  {st}")
+
+# --- what the sweep DOES establish: bounds and the coupler sensitivity at reduced padding
+print("\nUpper bound on the merge-only cost (adding rounds only adds failures): merge-only <= LER(d_init=6)")
+print(f"{'p':>7} {'r1: LER(d6)':>12} {'r10: LER(d6)':>13} {'r10/r1':>7} {'(±)':>6}   {'r10/r1 at d12':>14}   channel split at d6 (out / mem), r10/r1")
+for p in ps:
+    a, b = point("r1", p, 6), point("r10", p, 6)
+    if not (a and b): continue
+    ratio = b[0] / a[0] if a[0] > 0 else float("inf")
+    rel = np.sqrt((a[1]/a[0])**2 + (b[1]/b[0])**2) if a[0] > 0 and b[0] > 0 else float("nan")
+    a12, b12 = point("r1", p, 12), point("r10", p, 12)
+    r12 = f"{b12[0]/a12[0]:.2f} ({b12[2]})" if (a12 and b12 and a12[0] > 0) else "—"
+    # channel split from the raw MC rows
+    def split(t):
+        for pp, d, F, n, ler, lo, lm in SWEEP[t]:
+            if abs(pp - p) < 1e-12 and d == 6: return lo, lm, n
+        return None
+    s1, s10 = split("r1"), split("r10")
+    ch = ""
+    if s1 and s10:
+        ro = (s10[0]/s1[0]) if s1[0] > 0 else float("inf"); rm = (s10[1]/s1[1]) if s1[1] > 0 else float("inf")
+        ch = f"out {s1[0]:.1e}->{s10[0]:.1e} (×{ro:.1f})   mem {s1[1]:.1e}->{s10[1]:.1e} (×{rm:.1f})"
+    print(f"{p:7.1e} {a[0]:12.3e} {b[0]:13.3e} {ratio:7.2f} {ratio*rel:6.2f}   {r12:>14}   {ch}")
+if not ps:
+    print("\nneed MC cells (mc_dinit.json) for the sweep")''')
 
 md(r"""## Reading it
 
@@ -500,8 +565,11 @@ md(r"""## Reading it
   law extrapolated, and the flat-floor bound is the pessimistic alternative. Quote the
   measured window (≥4e-4) as fact and the pinned extrapolation as the paper-convention
   estimate; low-weight bins would close the gap.
-* **The d_init sweep's intercept is an upper bound on the merge cost** (context
-  confound) until a third padding value confirms linearity.
+* **The d_init sweep did not yield a merge cost with this decoder**: LER is not linear
+  in rounds (d12/d6 ratios of 3–21 vs ≤2 for a volume model), so the intercepts are
+  negative and meaningless. What it does give: LER(d6) as an upper bound on the merge
+  cost, and a coupler sensitivity of 2.4–3× (1e-3, 7e-4) rising to ~11× at 5e-4 once
+  half the idle padding is removed — versus 1.2–1.5× with full padding.
 * **Caveats** (from the top cell): 22/23 memory logicals; F_mem is Z-basis-visible
   only. Don't over-read the absolute memory numbers against the paper's K-harness
   framing — the r1-vs-r10 *ratio* is the robust quantity.""")
