@@ -44,3 +44,4 @@ adaptive_failures: 20
 adaptive_shots_min: 4
 adaptive_shots_max: 3000   # resolves f ~ 1e-3 bins (main run at 300 stopped above the mass)
 adaptive_stop_zero_bins: 3
+weight_stride: 2               # every 2nd weight (stride-fill interpolates); f(w) varies slowly bin to bin -- halves the run

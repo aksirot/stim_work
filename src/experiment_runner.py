@@ -114,13 +114,17 @@ def _build_intermodule_circuit(cfg: "Config"):
         print(f"[warn] p_coupler_factor={r} is not an integer; the IS expansion rounds it and "
               f"injects O(p^2) error — prefer an integer ratio.", flush=True)
     em = ErrorModel(p_phys=cfg.p_ref, p_meas=cfg.p_ref * cfg.p_meas_factor)
-    return tdg.build_joint_x1x1_circuit(
+    circ = tdg.build_joint_x1x1_circuit(
         em, C=cfg.lpu_C, d_init=cfg.lpu_d_init,
         p_coupler=cfg.p_ref * r,
         include_memory_observables=cfg.lpu_include_memory_obs,
         idle_noise=cfg.lpu_idle_noise,
         interleaved_idle_depth=cfg.lpu_interleaved_idle_depth,
         noiseless_return=cfg.lpu_noiseless_return)
+    if cfg.noise_scale_factors:
+        from lpu_noise_scaling import scale_im_noise
+        circ = scale_im_noise(circ, cfg.p_ref, dict(cfg.noise_scale_factors))
+    return circ
 
 
 def _build_automorphism_circuit(cfg: "Config"):
@@ -197,6 +201,10 @@ class Config:
     # operation, ONE noise-free stabilizer cycle after): lpu_d_init: 0 + this flag makes the
     # inter_module return cycle noiseless. Default False = the padded fail-fast framing.
     lpu_noiseless_return: bool = False
+    # Asymmetric device noise on the built inter_module circuit (lpu_noise_scaling.scale_im_noise):
+    # e.g. {meas: 5.0, meas_idle: 5.0}. Applied after the builder; the decoder is then set up on
+    # the scaled circuit (priors matched to the asymmetric model at p_ref). None = symmetric.
+    noise_scale_factors: Optional[Dict[str, float]] = None
     p_coupler_factor: float = 1.0         # inter_module: p_coupler = p_coupler_factor * p_phys (Bell-pair
                                           # fidelity knob; integer keeps the Technique-I expansion exact)
     # Five-channel budget campaigns: isolate ONE channel (noise_channel) or drop one channel,
@@ -932,6 +940,8 @@ def main(argv: Optional[List[str]] = None) -> None:
                               lpu_interleaved_idle_depth=cfg.lpu_interleaved_idle_depth,
                               lpu_include_memory_obs=cfg.lpu_include_memory_obs,
                               lpu_shift=cfg.lpu_shift,
+                              lpu_noiseless_return=cfg.lpu_noiseless_return,
+                              noise_scale_factors=cfg.noise_scale_factors,
                               p_coupler_factor=cfg.p_coupler_factor,
                               outdir=cfg.outdir)
             cfg = sm

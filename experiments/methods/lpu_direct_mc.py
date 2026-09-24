@@ -28,19 +28,14 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import numpy as np
 
-import math
-import stim
-
 from experiment_runner import load_config, build_circuit, make_decoder
-from bb_code_sim import RelayBPDecoder, scale_noise_channels, NOISE_CHANNEL_PREDICATES
+from bb_code_sim import RelayBPDecoder
+from lpu_noise_scaling import M5, scale_im_noise      # shared with the IS runner (Config.noise_scale_factors)
 from repo_paths import REPO_ROOT
 
 DEEP600 = dict(gamma0=0.125, pre_iter=80, num_sets=600, set_max_iter=60,
                gamma_dist_interval=(-0.24, 0.66), stop_nconv=5)
 CFG_DIR = REPO_ROOT / "experiments" / "configs"
-# Device-like asymmetric point used for the 18/72-code error-model comparison:
-# measurement flips and the measure/reset dead-time idle both 5x the gate rate.
-M5 = {"meas": 5.0, "meas_idle": 5.0}
 # (op name, config yaml[, noise-scale factors applied to the built circuit])
 ALL_OPS = [("inter_module_interleaved", "gross_intermodule_r1_il"),
            ("inter_module_legacy", "gross_intermodule_r1"),
@@ -80,61 +75,6 @@ TARGET = int(os.environ.get("MC_TARGET", "30"))
 SHOTS_MAX = int(os.environ.get("MC_SHOTS_MAX", "4000"))
 DECODER = os.environ.get("MC_DECODER", "deep600")
 BATCH = int(os.environ.get("MC_BATCH", "64"))
-
-
-def _datalike(q: int) -> bool:
-    """Data + edge(bridge) qubits of either module: the qubits that sit idle through the
-    ancilla measurement dead time (check/adapter ancillas are being measured then)."""
-    import gross_code_lpu_tdg as tdg
-    off = tdg.N_TOTAL_QUBITS
-    if q >= 2 * off:
-        return False
-    l = q % off
-    return l < tdg.N_DATA or tdg.EDGE_QUBIT_BASE <= l < tdg.VERTEX_QUBIT_BASE
-
-
-def scale_im_noise(circ: stim.Circuit, p: float, factors: dict) -> stim.Circuit:
-    """Asymmetric device-like noise on a built inter-module circuit (audited 2026-09-22).
-
-    'meas'      -> every measurement flip (X_ERROR immediately before an M) x f.
-    'meas_idle' -> the measure/reset dead-time idle x f, which this circuit carries in
-                   two layouts: (a) the BARE rounds use the standard per-sub-layer
-                   layout, so the M/R-anchored DEPOLARIZE1(p) (bb_code_sim's meas_idle
-                   predicate) is scaled x f directly; (b) the MERGED LPU rounds charge
-                   idle once per round as a lump DEPOLARIZE1(1-(1-p)^k) over k of the 12
-                   interleaved timesteps, one of which is the dead time — so data-like
-                   qubits in a lump get (f-1) extra timestep-equivalents:
-                   P' = 1 - (1-P)(1-p)^(f-1). Ancillas being measured are left alone.
-    Other keys -> bb_code_sim.scale_noise_channels predicates.
-    """
-    f_mi = factors.get("meas_idle")
-    out = stim.Circuit()
-    if f_mi:
-        # (b) first, on the untouched circuit: lumps are the DEPOLARIZE1 with k >= 2 layers
-        for inst in circ.flattened():
-            if inst.name == "DEPOLARIZE1":
-                P = inst.gate_args_copy()[0]
-                k = math.log1p(-P) / math.log1p(-p) if 0 < P < 1 else 1.0
-                if k > 1.5:
-                    tg = [t.value for t in inst.targets_copy()]
-                    dl = [q for q in tg if _datalike(q)]
-                    ot = [q for q in tg if not _datalike(q)]
-                    if ot:
-                        out.append("DEPOLARIZE1", ot, P)
-                    if dl:
-                        out.append("DEPOLARIZE1", dl, 1.0 - (1.0 - P) * (1.0 - p) ** (f_mi - 1))
-                    continue
-            out.append(inst)
-    else:
-        out = circ
-    # (a) + everything else via the positional predicates; the legacy meas_idle layer is
-    # exactly a p-rate DEPOLARIZE1, so restrict that predicate to |P - p| small (the lumps
-    # handled above must not be scaled twice).
-    std = {k: v for k, v in factors.items() if k != "meas_idle"}
-    if f_mi:
-        base = NOISE_CHANNEL_PREDICATES["meas_idle"]
-        std[lambda i, pr, nx: base(i, pr, nx) and abs(i.gate_args_copy()[0] - p) < 1e-12] = f_mi
-    return scale_noise_channels(out, std) if std else out
 
 
 def main():
