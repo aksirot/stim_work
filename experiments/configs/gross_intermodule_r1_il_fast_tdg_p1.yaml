@@ -1,0 +1,46 @@
+# PAPER-FRAMED inter-module (r1) IS spectrum at p_ref = 1e-3 (was 5e-3), 3000 shots/bin.
+# Why (diagnostic 2026-09-24, runs/diag_tdg.log, r10 at p=1e-3, 500 shots/cell): the
+# p_ref=5e-3 spectrum reweighted 1.9x BELOW the MC. Two systematics, both from p_ref:
+#   (1) decoder priors built at p_ref (couplers at 5% for r10) -> 25% FEWER failures than
+#       the matched decoder on the same shots (A2/A1 = 0.75; on the padded circuit the
+#       sign was the other way, +11%);
+#   (2) the DEM's sub-linear merging of the 5%-level coupler mechanisms at p_ref under-
+#       weights them in the linear expansion (injection from the p_ref DEM vs the p DEM:
+#       0.85x; max multiplier 683 vs 831). DEM sampling itself == circuit sampling (1.00).
+# At p_ref=1e-3 the decoder is matched at the p of interest and every mechanism is in
+# the linear regime. shots_max 3000 because f(w) is only ~1e-3..1e-2 across the region
+# that carries LER(1e-3) on this circuit (the 300-shot frontier landed ABOVE the mass).
+label: gross_intermodule_r1_il_fast_tdg_p1
+outdir: runs/framework/bb144/inter_module_r1_il_fast_tdg_p1
+code_name: bb144
+experiment: inter_module
+decoder_name: relay
+techniques: [IS, I]
+
+p_ref: 0.001                  # <-- matched to the p of interest (see header)
+p_lo: 1.0e-4
+p_hi: 0.005
+p_coupler_factor: 1
+lpu_C: 10
+lpu_d_init: 0                  # <-- NO padding (paper framing); 12 in the production configs
+lpu_noiseless_return: true     # <-- the final bare cycle is the paper's noise-free final cycle
+lpu_idle_noise: true
+lpu_interleaved_idle_depth: 12
+lpu_include_memory_obs: true   # K=23: obs0 output + 22 memory (F_out/F_mem split)
+
+relay_gamma0: 0.125
+relay_pre_iter: 80
+relay_num_sets: 20             # campaign relay (deep600 is 600; fish-only locally)
+relay_set_max_iter: 60
+relay_gamma_lo: -0.24
+relay_gamma_hi: 0.66
+relay_stop_nconv: 5
+
+mw_single_sector: false        # K=23 mixes X-type obs0 + Z-type memory obs (full DEM)
+
+weights_range: [1, 340]        # IS plan: E[faults](5e-3) ~ 255 (129809 mechanisms), +4 sigma ~ 320; 340 covers p_hi
+adaptive: true
+adaptive_failures: 20
+adaptive_shots_min: 4
+adaptive_shots_max: 3000   # resolves f ~ 1e-3 bins (main run at 300 stopped above the mass)
+adaptive_stop_zero_bins: 3
